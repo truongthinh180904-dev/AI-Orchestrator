@@ -85,3 +85,18 @@
   - Cung cấp `isRepoClean` và `getRepoStatus` cho các trường hợp chỉ cần kiểm tra trạng thái mà không ném ngoại lệ.
   - Đảm bảo cơ chế bảo vệ: khi gọi `checkRepoClean` trước các thao tác thay đổi file, lỗi `REPO_DIRTY` lập tức chặn thực thi, bảo vệ không làm mất hoặc ghi đè dữ liệu chưa commit.
 
+
+## TSK-001: Schema + model Task/Feature/Dependency (zod + repository class)
+- **Vị trí Module**:
+  - `packages/shared/src/models/`: Chứa các định nghĩa Zod schemas và TypeScript types cho `Task`, `Feature`, `TaskDependency` cùng các input schemas (`CreateTaskInput`, `UpdateTaskInput`, `CreateFeatureInput`, `UpdateFeatureInput`, `TaskFilter`, `FeatureFilter`).
+  - `packages/db/src/repositories/`: Chứa các repository classes `TaskRepository`, `FeatureRepository`, `TaskDependencyRepository`. Re-export qua `packages/db/src/index.ts`.
+- **Thiết kế Schema & Zod Types**:
+  - Tách bạch giữa Zod output type (`z.infer` / `z.output`) cho entity đã qua validation và input type (`z.input`) cho các hàm nhận tham số create/update nhằm hỗ trợ giá trị mặc định (defaults) mà không bắt buộc caller phải truyền vào.
+  - Trạng thái Task (`TaskStatus`): bao gồm 9 trạng thái chuẩn theo ORC-001 (`TODO`, `READY`, `RUNNING`, `VERIFYING`, `DONE`, `FAILED`, `BLOCKED`, `PAUSED`, `CANCELLED`).
+  - Trạng thái Feature (`FeatureStatus`): `TODO`, `IN_PROGRESS`, `DONE`, `FAILED`, `BLOCKED`.
+- **Cơ chế lưu trữ SQLite & Tuân thủ SKILL-sqlite.md**:
+  - Sử dụng prepared statements với parameterized queries (`?`), tuyệt đối không nối chuỗi SQL.
+  - Các trường mảng (`acceptance_criteria`, `test_commands`, `required_tasks`, `integration_tests`) được serialize thành chuỗi JSON trong SQLite và deserialize + validate an toàn qua Zod khi đọc ra.
+  - Đồng bộ quan hệ nhiều bước (như tạo task kèm dependencies hoặc sync dependencies) được bọc trong `db.transaction(...)` nhằm bảo đảm tính toàn vẹn dữ liệu.
+  - Sử dụng batch query dependencies theo danh sách task IDs trong `findAll()` để loại bỏ hoàn toàn vấn đề N+1 query.
+  - Bắt lỗi SQLite constraint (`SQLITE_CONSTRAINT_PRIMARYKEY`, `SQLITE_CONSTRAINT_FOREIGNKEY`) và chuyển đổi thành `AppError` tương ứng (`TASK_ALREADY_EXISTS`, `FEATURE_ALREADY_EXISTS`, `DEPENDENCY_ALREADY_EXISTS`, `FOREIGN_KEY_VIOLATION`, `SELF_DEPENDENCY_ERROR`, `TASK_NOT_FOUND`, `FEATURE_NOT_FOUND`).
