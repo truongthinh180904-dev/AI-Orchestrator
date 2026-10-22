@@ -297,3 +297,29 @@
   - Cung cấp phương thức đồng bộ `NdjsonParser.parse()` và phương thức bất đồng bộ `NdjsonParser.parseStream()` phục vụ kiểm thử và xử lý nhanh NDJSON.
 - **Dependencies**: Không thêm dependency bên ngoài mới (sử dụng thư viện chuẩn `node:string_decoder`, `node:stream`, `zod` và `@ai-orchestrator/shared`).
 
+
+## AGY-003: Chuẩn hóa event stream + lưu bảng events (run_id, seq, type, payload, ts; stdout/stderr thô cũng lưu)
+- **Vị trí Module**:
+  - `packages/shared/src/models/run.ts`: Schema & types cho `Run`, `RunStatus` (`PENDING`, `RUNNING`, `SUCCESS`, `ERROR`, `INVALID_OUTPUT`, `TIMEOUT`, `CANCELLED`), `CreateRunInput`, `UpdateRunInput`.
+  - `packages/shared/src/models/event.ts`: Schema & types cho `EventRecord`, `CreateEventInput`, `EventFilter`, hằng số các loại sự kiện chuẩn `STANDARD_EVENT_TYPES` (`stdout`, `stderr`, `parse_error`, `process_start`, `process_exit`). Re-export qua `packages/shared/src/models/index.ts` và `@ai-orchestrator/shared`.
+  - `packages/db/src/repositories/run-repository.ts`: Lớp `RunRepository` thao tác CRUD với bảng `runs` bằng SQLite prepared statements.
+  - `packages/db/src/repositories/event-repository.ts`: Lớp `EventRepository` ghi nhận sự kiện vào bảng `events` (đơn lẻ hoặc theo batch trong transaction), hỗ trợ `getNextSeq()`, `findByRunId()` có phân trang và lọc type/seq, cùng hàm `getRawLogs()` trích xuất log thô tuần tự thời gian.
+  - `apps/orchestrator/src/adapters/execution-stream.ts`: Lớp `ExecutionStreamRecorder` và hàm helper `attachExecutionStream()`. Tự động gắn kết `ProcessHandle` (stdout, stderr, lifecycle) với `NdjsonParser` và `EventRepository`.
+- **Cơ chế Chuẩn hóa Event Stream**:
+  - Mỗi sự kiện ghi vào bảng `events` luôn có đủ 5 trường cốt lõi theo ROADMAP: `run_id`, `seq` (số nguyên dương tăng dần đơn điệu), `type` (chuỗi định danh loại sự kiện), `payload` (chuỗi JSON hợp lệ được serialize/deserialize tự động qua Zod), và `ts` (ISO-8601 UTC).
+  - Chuẩn hóa loại sự kiện:
+    - Vòng đời tiến trình: `process_start` (chứa `pid`, `command`, `startedAt`), `process_exit` (chứa `exitCode`, `signal`, `durationMs`).
+    - Dòng thô: `stdout` (chứa dòng stdout gốc dạng `{ text }`), `stderr` (chứa dòng stderr gốc dạng `{ text }`).
+    - Sự kiện NDJSON: `type` được trích xuất trực tiếp từ trường type của JSON payload (hoặc mặc định), kèm dữ liệu payload đã qua phân tích.
+    - Lỗi cú pháp JSON: `parse_error` ghi nhận dòng thô (`raw`) và thông điệp lỗi (`errorMessage`) mà không ngắt luồng ghi nhận.
+- **Lưu đồng thời stdout/stderr thô (Raw Logs)**:
+  - Khi stdout phát sinh từng dòng, hệ thống lưu sự kiện `stdout` thô trước, sau đó nếu dòng là NDJSON hợp lệ thì lưu tiếp sự kiện chuẩn hóa tương ứng.
+  - Luồng stderr được đệm bằng `StringDecoder('utf8')`, cắt theo `\n`, loại bỏ `\r`, và tự động flush phần còn dư khi stream kết thúc, lưu lại thành các sự kiện `stderr` thô.
+  - Hàm `getRawLogs(runId)` trích xuất toàn bộ log `stdout` và `stderr` theo đúng thứ tự `seq ASC`.
+- **Đảm bảo tiêu chí "Log còn sau khi process chết"**:
+  - Mỗi sự kiện được ghi vào SQLite ngay lập tức (`EventRepository.create()` thực thi prepared statement đồng bộ ngay khi nhận sự kiện từ stream, không gom cuối hay lưu tạm trên RAM).
+  - Ngay cả khi tiến trình kết thúc bình thường (exit 0), kết thúc có lỗi (exit != 0), bị crash do uncaught exception, hoặc bị kill cưỡng bức bằng tín hiệu `SIGKILL`/`SIGTERM`, toàn bộ dữ liệu log và sự kiện đã phát trước đó đều tồn tại nguyên vẹn trong cơ sở dữ liệu SQLite và có thể truy vấn bất kỳ lúc nào.
+- **Ràng buộc khóa ngoại và toàn vẹn dữ liệu**:
+  - Bảng `events` liên kết khóa ngoại `run_id REFERENCES runs(id) ON DELETE CASCADE`.
+  - Khi một bản ghi `runs` bị xóa, các sự kiện liên quan trong `events` tự động được dọn dẹp sạch sẽ nhờ cơ chế `foreign_keys = ON` của SQLite.
+- **Dependencies**: Không thêm dependency bên ngoài mới (sử dụng `better-sqlite3`, `zod`, `node:events`, `node:string_decoder`, `@ai-orchestrator/shared`, `@ai-orchestrator/db`).

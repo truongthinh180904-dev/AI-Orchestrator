@@ -11,6 +11,13 @@ import {
   TaskWithDependenciesSchema,
   UpdateFeatureInputSchema,
   UpdateTaskInputSchema,
+  RunStatusSchema,
+  RunSchema,
+  CreateRunInputSchema,
+  UpdateRunInputSchema,
+  EventRecordSchema,
+  CreateEventInputSchema,
+  STANDARD_EVENT_TYPES,
 } from '../models/index.js';
 
 describe('TSK-001: Zod Schemas & Domain Models', () => {
@@ -153,6 +160,93 @@ describe('TSK-001: Zod Schemas & Domain Models', () => {
         CreateTaskDependencyInputSchema.parse({
           task_id: '',
           depends_on_id: 'TSK-001',
+        }),
+      ).toThrow();
+    });
+  });
+
+  describe('Run & Event Models & Schemas (AGY-003)', () => {
+    it('Validates RunStatusSchema and rejects invalid statuses', () => {
+      const validStatuses = [
+        'PENDING',
+        'RUNNING',
+        'SUCCESS',
+        'ERROR',
+        'INVALID_OUTPUT',
+        'TIMEOUT',
+        'CANCELLED',
+      ];
+      for (const s of validStatuses) {
+        expect(RunStatusSchema.parse(s)).toBe(s);
+      }
+      expect(() => RunStatusSchema.parse('NOT_A_STATUS')).toThrow();
+    });
+
+    it('Validates RunSchema defaults and constraints', () => {
+      const run = RunSchema.parse({
+        id: 'run-123',
+        task_id: 'TSK-001',
+        status: 'RUNNING',
+        started_at: '2026-10-23T00:00:00.000Z',
+      });
+
+      expect(run.id).toBe('run-123');
+      expect(run.task_id).toBe('TSK-001');
+      expect(run.attempt).toBe(1);
+      expect(run.status).toBe('RUNNING');
+      expect(run.exit_code).toBeNull();
+      expect(run.pid).toBeNull();
+      expect(run.finished_at).toBeNull();
+      expect(run.branch).toBeNull();
+      expect(run.commit_sha).toBeNull();
+    });
+
+    it('Validates CreateRunInputSchema and UpdateRunInputSchema', () => {
+      const createInput = CreateRunInputSchema.parse({
+        task_id: 'TSK-001',
+        status: 'RUNNING',
+        pid: 9999,
+      });
+      expect(createInput.task_id).toBe('TSK-001');
+      expect(createInput.attempt).toBe(1);
+      expect(createInput.pid).toBe(9999);
+
+      const updateInput = UpdateRunInputSchema.parse({
+        status: 'SUCCESS',
+        exit_code: 0,
+        finished_at: '2026-10-23T01:00:00.000Z',
+      });
+      expect(updateInput.status).toBe('SUCCESS');
+      expect(updateInput.exit_code).toBe(0);
+    });
+
+    it('Validates EventRecordSchema, CreateEventInputSchema, and STANDARD_EVENT_TYPES', () => {
+      expect(STANDARD_EVENT_TYPES.STDOUT).toBe('stdout');
+      expect(STANDARD_EVENT_TYPES.STDERR).toBe('stderr');
+      expect(STANDARD_EVENT_TYPES.PARSE_ERROR).toBe('parse_error');
+      expect(STANDARD_EVENT_TYPES.PROCESS_START).toBe('process_start');
+      expect(STANDARD_EVENT_TYPES.PROCESS_EXIT).toBe('process_exit');
+
+      const event = EventRecordSchema.parse({
+        id: 1,
+        run_id: 'run-123',
+        seq: 1,
+        type: 'stdout',
+        payload: { text: 'Building...' },
+        ts: '2026-10-23T00:00:00.000Z',
+      });
+
+      expect(event.id).toBe(1);
+      expect(event.run_id).toBe('run-123');
+      expect(event.seq).toBe(1);
+      expect(event.type).toBe('stdout');
+      expect(event.payload).toEqual({ text: 'Building...' });
+
+      expect(() =>
+        CreateEventInputSchema.parse({
+          run_id: '',
+          type: 'stdout',
+          payload: 'test',
         }),
       ).toThrow();
     });

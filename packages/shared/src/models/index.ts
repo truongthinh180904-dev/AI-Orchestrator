@@ -4,3 +4,5 @@ export * from './task.js';
 export * from './import.js';
 export * from './agent-command.js';
 export * from './ndjson.js';
+export * from './run.js';
+export * from './event.js';
