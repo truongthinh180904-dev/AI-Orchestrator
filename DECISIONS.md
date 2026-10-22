@@ -65,3 +65,23 @@
   - `.gitignore` cấu hình chặn `.env` và mọi file `.env.*`, chỉ ngoại lệ bỏ chặn file mẫu `!.env.example`.
   - `.env.example` tạo tại thư mục gốc, chỉ chứa template cấu hình và placeholder, tuyệt đối không chứa credentials/secrets thật.
   - Unit test tự động kiểm tra `git check-ignore` và `git ls-files` để đảm bảo không lọt secret vào Git.
+
+## FND-006: Hàm checkRepoClean(path) dùng git status --porcelain
+- **Vị trí Module**:
+  - `packages/shared/src/git.ts`: Cung cấp hàm `checkRepoClean`, `getRepoStatus`, `isRepoClean`, `parseGitPorcelain` và các kiểu dữ liệu liên quan (`GitFileStatus`, `RepoStatusResult`, `CheckRepoCleanOptions`). Re-export tại `packages/shared/src/index.ts`.
+  - `apps/orchestrator/src/adapters/git.ts`: Adapter Git cho Orchestrator (theo cấu trúc `SKILL-node-typescript.md`), re-export các tiện ích Git từ `@ai-orchestrator/shared` và xuất qua `apps/orchestrator/src/index.ts`.
+- **Cơ chế thực thi an toàn (Process Execution)**:
+  - Gọi lệnh `git` bằng `child_process.spawn('git', args, { cwd: repoPath, stdio: ['ignore', 'pipe', 'pipe'] })`, tuyệt đối không dùng `exec` hay `shell: true` với input động để tuân thủ quy tắc bảo mật của `AGENTS.md`.
+  - Bắt lỗi khi không tìm thấy `git` trong PATH (`GIT_NOT_FOUND`) hoặc lỗi khởi tạo process (`GIT_SPAWN_ERROR`).
+- **Phát hiện thư mục không hợp lệ**:
+  - Kiểm tra sự tồn tại của thư mục qua `fs.existsSync` (`PATH_NOT_FOUND`) và `fs.statSync().isDirectory()` (`NOT_A_DIRECTORY`).
+  - Kiểm tra repository Git hợp lệ qua mã thoát và stderr của git (`NOT_A_GIT_REPO`).
+- **Phân tích cú pháp Porcelain**:
+  - `parseGitPorcelain`: Phân tách các dòng định dạng `git status --porcelain` (v1), bóc tách 2 ký tự trạng thái `indexStatus`, `workTreeStatus`, đường dẫn file `path`, hỗ trợ phát hiện file đổi tên (`old -> new`) và gỡ bỏ dấu ngoặc kép khi Git quote đường dẫn chứa khoảng trắng.
+- **Quy tắc nghiệm thu "Repo bẩn → trả lỗi, không ghi đè"**:
+  - `checkRepoClean` ném `AppError` với mã lỗi `REPO_DIRTY` khi phát hiện thay đổi chưa commit (staged, unstaged, untracked, deleted).
+  - Ngữ cảnh lỗi (`context`) lưu chi tiết: `dirtyCount`, mảng `dirtyFiles` và chuỗi raw output để phục vụ debug và log.
+  - Hỗ trợ tùy chọn `allowedFiles` (cho phép bỏ qua các file trong phạm vi task hợp lệ) và `ignoreUntracked` (tùy chọn bỏ qua file chưa theo dõi).
+  - Cung cấp `isRepoClean` và `getRepoStatus` cho các trường hợp chỉ cần kiểm tra trạng thái mà không ném ngoại lệ.
+  - Đảm bảo cơ chế bảo vệ: khi gọi `checkRepoClean` trước các thao tác thay đổi file, lỗi `REPO_DIRTY` lập tức chặn thực thi, bảo vệ không làm mất hoặc ghi đè dữ liệu chưa commit.
+
