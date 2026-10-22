@@ -203,3 +203,30 @@
 
 
 
+
+## TSK-006: API POST /import (dry-run + commit), GET/PATCH /tasks, GET /features
+- **Kiến trúc Fastify & Dependency Injection**:
+  - `buildServer(options: BuildServerOptions)` trong `apps/orchestrator/src/server.ts`: Nhận database instance (`better-sqlite3`), logger và config tùy chọn; không dùng singleton toàn cục; tối ưu hóa cho test automation qua Fastify `app.inject()`.
+  - Bootstrap tại `apps/orchestrator/src/main.ts`: Khởi tạo môi trường (`loadEnv()`), kết nối DB SQLite (`createDatabase()`), áp dụng migrations (`runMigrations()`), lắng nghe theo cổng/host cấu hình và thiết lập graceful shutdown bắt tín hiệu `SIGINT`/`SIGTERM`.
+  - Phân tầng rõ ràng theo `SKILL-node-typescript.md`:
+    - `routes/`: validate input bằng `zod`, ánh xạ controller.
+    - `services/`: nghiệp vụ thuần túy không phụ thuộc framework (`ImportService`, `TaskService`, `FeatureService`).
+- **Dependencies mới**:
+  - Thêm `fastify` và `@fastify/multipart` vào `apps/orchestrator` để xử lý HTTP REST API và upload file multipart/form-data.
+  - Thêm `fastify` và `@types/better-sqlite3` vào root workspace `devDependencies` để phục vụ typecheck các acceptance tests tại `test/`.
+  - Thêm `zod` và `@types/better-sqlite3` vào `apps/orchestrator`.
+- **API POST /import (dry-run + commit)**:
+  - Hỗ trợ đa dạng nguồn đầu vào: `filePath`, `buffer` (qua multipart upload), `fileContent` (chuỗi CSV hoặc base64), `files` (record CSV) hoặc `tasks`/`features` mảng object thô.
+  - Chế độ `dry-run` (`dryRun: true` hoặc `mode: 'dry-run'`): Parse và validate toàn bộ tập dữ liệu, trả về `{ dryRun: true, valid, summary, report, preview }`, cam kết không sửa đổi cơ sở dữ liệu SQLite. Nếu phát hiện lỗi (trùng task_id, dependency không tồn tại, cycle), báo cáo chi tiết qua `report` mà không quăng lỗi crash.
+  - Chế độ `commit` (`mode: 'commit'` hoặc `dryRun: false`): Nếu dữ liệu không hợp lệ, ném `AppError('IMPORT_VALIDATION_FAILED')` kèm chi tiết lỗi và từ chối ghi; nếu hợp lệ, thực thi ghi toàn bộ features, tasks và dependencies trong 1 transaction SQLite nguyên tử (atomic rollback nếu lỗi).
+  - Tự động gieo mầm (auto-seed) các task mốc Foundation (`FND-001` ... `FND-006`) với trạng thái `DONE` khi import task có dependency tham chiếu đến chúng mà DB chưa có sẵn, bảo đảm các file mẫu như `sample-tasks.xlsx` hoạt động tự nhiên với ràng buộc khóa ngoại SQLite.
+- **API GET/PATCH /tasks & GET /features**:
+  - `GET /tasks`: Lấy danh sách task kèm `dependencies`, hỗ trợ query filter `status`, `feature_id`, `phase` và tìm kiếm text `search`.
+  - `GET /tasks/:id`: Chi tiết task theo ID, trả về 404 `TASK_NOT_FOUND` nếu không tồn tại.
+  - `PATCH /tasks/:id` & `PATCH /tasks`: Cập nhật linh hoạt các trường task, kiểm tra chặt chẽ schema zod; ném `FOREIGN_KEY_VIOLATION` nếu gán dependency không tồn tại; ném `CIRCULAR_DEPENDENCY_ERROR` nếu tạo chu trình phụ thuộc; ném 404 nếu không tìm thấy task.
+  - `GET /features`: Danh sách feature, hỗ trợ filter `status`.
+  - `GET /features/:id`: Chi tiết feature theo ID, trả về 404 `FEATURE_NOT_FOUND` nếu không tồn tại.
+  - Hỗ trợ bí danh route song song `/api/import`, `/api/tasks`, `/api/features` và `/api/health`.
+- **Xử lý lỗi tập trung (Error Handling)**:
+  - Bắt và chuẩn hóa `AppError` thành mã HTTP tương ứng (404 cho `NOT_FOUND`, 409 cho `ALREADY_EXISTS`/`DUPLICATE`, 400 cho `VALIDATION_ERROR`/`CIRCULAR_DEPENDENCY`/`FOREIGN_KEY_VIOLATION`/`IMPORT_VALIDATION_FAILED`).
+  - Định dạng phản hồi chuẩn hóa `{ error: { code, message, context } }` và `{ data: ... }` khi thành công.

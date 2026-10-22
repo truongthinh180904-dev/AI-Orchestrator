@@ -97,6 +97,69 @@ export class FeatureRepository {
     return created;
   }
 
+  createMany(features: CreateFeatureInput[]): Feature[] {
+    if (features.length === 0) return [];
+
+    const validatedFeatures = features.map((f) => CreateFeatureInputSchema.parse(f));
+
+    const seenBatch = new Set<string>();
+    for (const feat of validatedFeatures) {
+      if (seenBatch.has(feat.id)) {
+        throw new AppError('DUPLICATE_FEATURE_ID', `Duplicate feature id '${feat.id}' found in batch`, {
+          featureId: feat.id,
+        });
+      }
+      seenBatch.add(feat.id);
+    }
+
+    const batchIds = Array.from(seenBatch);
+    const placeholders = batchIds.map(() => '?').join(',');
+    const existingRows = this.db
+      .prepare(`SELECT id FROM features WHERE id IN (${placeholders})`)
+      .all(...batchIds) as Array<{ id: string }>;
+    if (existingRows.length > 0) {
+      const conflictId = existingRows[0]?.id;
+      throw new AppError('FEATURE_ALREADY_EXISTS', `Feature with id '${conflictId}' already exists in database`, {
+        featureId: conflictId,
+      });
+    }
+
+    const insertTx = this.db.transaction(() => {
+      const stmt = this.db.prepare(`
+        INSERT INTO features (
+          id, name, description, required_tasks, integration_tests, release_policy, status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      const now = new Date().toISOString();
+      for (const f of validatedFeatures) {
+        const createdAt = f.created_at ?? now;
+        const updatedAt = f.updated_at ?? now;
+        stmt.run(
+          f.id,
+          f.name,
+          f.description ?? null,
+          JSON.stringify(f.required_tasks ?? []),
+          JSON.stringify(f.integration_tests ?? []),
+          f.release_policy ?? null,
+          f.status ?? 'TODO',
+          createdAt,
+          updatedAt,
+        );
+      }
+    });
+
+    insertTx();
+
+    return validatedFeatures.map((f) => {
+      const found = this.findById(f.id);
+      if (!found) {
+        throw new AppError('FEATURE_NOT_FOUND', `Failed to find feature '${f.id}' after batch insert`);
+      }
+      return found;
+    });
+  }
+
   findById(id: string): Feature | null {
     const stmt = this.db.prepare('SELECT * FROM features WHERE id = ?');
     const row = stmt.get(id) as Record<string, unknown> | undefined;

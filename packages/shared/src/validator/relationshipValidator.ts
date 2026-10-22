@@ -176,11 +176,10 @@ export function validateDependenciesExistence(
         availableTaskIds.add(id.trim());
       }
     }
-  } else {
-    // Mặc định nạp các mốc Foundation tasks của hệ thống (GĐ 0) đã hoàn thành
-    for (const id of FOUNDATION_TASK_IDS) {
-      availableTaskIds.add(id);
-    }
+  }
+  // Mặc định luôn nạp các mốc Foundation tasks của hệ thống (GĐ 0) đã hoàn thành
+  for (const id of FOUNDATION_TASK_IDS) {
+    availableTaskIds.add(id);
   }
 
   for (let idx = 0; idx < tasks.length; idx++) {
@@ -285,11 +284,10 @@ export function validateCrossEntityReferences(
         availableTaskIds.add(id.trim());
       }
     }
-  } else {
-    // Mặc định nạp các mốc Foundation tasks của hệ thống (GĐ 0) đã hoàn thành
-    for (const id of FOUNDATION_TASK_IDS) {
-      availableTaskIds.add(id);
-    }
+  }
+  // Mặc định luôn nạp các mốc Foundation tasks của hệ thống (GĐ 0) đã hoàn thành
+  for (const id of FOUNDATION_TASK_IDS) {
+    availableTaskIds.add(id);
   }
 
   for (let idx = 0; idx < features.length; idx++) {
