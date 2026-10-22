@@ -42,3 +42,26 @@
   - Hỗ trợ child logger qua `logger.child(childContext)` tự động gộp ngữ cảnh cha - con.
   - Hỗ trợ `destination` tùy biến (mặc định ghi `process.stdout.write`), cho phép inject transport hoặc mock trong unit tests mà không làm ô nhiễm stdout.
   - Xử lý đối số `errorOrContext` trong `logger.error`: nhận diện `Error`/`AppError` và bóc tách `name`, `code`, `message`, `stack`, `context` an toàn.
+
+## FND-005: Load Env bằng Zod, .env.example, .gitignore chặn .env
+- **Thư viện Zod**: Cài đặt `zod` trong `packages/shared` (`@ai-orchestrator/shared`) làm thư viện validation trung tâm cho monorepo theo quy định tại `AGENTS.md`.
+- **Vị trí Module**:
+  - `packages/shared/src/env.ts`: Cung cấp `envSchema`, `validateEnv`, `parseEnv`, `loadEnvFile`, và `loadEnv`.
+  - Re-export tại `packages/shared/src/index.ts`.
+  - `apps/orchestrator` khai báo dependency `@ai-orchestrator/shared: "workspace:*"` và cung cấp `apps/orchestrator/src/config.ts` (`getOrchestratorConfig()`).
+- **Schema & Biến bắt buộc**:
+  - `DATABASE_PATH`: Bắt buộc (`min(1)`), nếu thiếu hoặc rỗng sẽ throw `AppError` với code `ENV_VALIDATION_ERROR` và thông báo lỗi rõ ràng.
+  - `NODE_ENV`: Enum `['development', 'test', 'production']`, mặc định `'development'`.
+  - `PORT`: Coerce số nguyên `1-65535`, mặc định `3000`.
+  - `HOST`: Chuỗi host, mặc định `'127.0.0.1'`.
+  - `LOG_LEVEL`: Enum `['debug', 'info', 'warn', 'error']`, mặc định `'info'`.
+  - `AGY_BIN`: Chuỗi tên/đường dẫn executable AGY worker, mặc định `'agy'`.
+  - `AGY_ARGS`: Chuỗi tham số CLI tùy chọn (e.g. `'-p'`).
+  - `NEXT_PUBLIC_ORCH_URL`: URL API orchestrator cho dashboard, tùy chọn.
+- **Xử lý lỗi**:
+  - Hàm `formatZodError` định dạng danh sách lỗi validation theo từng trường `[FIELD] message`.
+  - Ném `AppError('ENV_VALIDATION_ERROR', ...)` kèm mảng `issues` trong context để caller có thể inspect có cấu trúc.
+- **An toàn bí mật (Secret Safety)**:
+  - `.gitignore` cấu hình chặn `.env` và mọi file `.env.*`, chỉ ngoại lệ bỏ chặn file mẫu `!.env.example`.
+  - `.env.example` tạo tại thư mục gốc, chỉ chứa template cấu hình và placeholder, tuyệt đối không chứa credentials/secrets thật.
+  - Unit test tự động kiểm tra `git check-ignore` và `git ls-files` để đảm bảo không lọt secret vào Git.
