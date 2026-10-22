@@ -56,6 +56,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
         case 'FOREIGN_KEY_VIOLATION':
         case 'SELF_DEPENDENCY_ERROR':
         case 'ILLEGAL_STATE_TRANSITION':
+        case 'MAX_ATTEMPTS_EXCEEDED':
+        case 'INVALID_RETRY_CONFIG':
         case 'IMPORT_VALIDATION_FAILED':
         case 'WORKBOOK_VALIDATION_ERROR':
         case 'INVALID_INPUT':

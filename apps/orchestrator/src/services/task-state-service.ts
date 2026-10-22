@@ -1,8 +1,5 @@
 import type Database from 'better-sqlite3';
-import {
-  TaskRepository,
-  EventRepository,
-} from '@ai-orchestrator/db';
+import { TaskRepository, EventRepository } from '@ai-orchestrator/db';
 import {
   AppError,
   type TaskWithDependencies,
@@ -10,6 +7,8 @@ import {
   assertValidTaskTransition,
   isValidTaskTransition,
   getAllowedTaskTransitions,
+  RetryPolicy,
+  type RetryDecision,
   logger as defaultLogger,
   type Logger,
 } from '@ai-orchestrator/shared';
@@ -20,6 +19,19 @@ export interface TransitionTaskOptions {
   incrementAttempt?: boolean;
   force?: boolean;
   meta?: Record<string, unknown>;
+}
+
+export interface RetryTaskOptions {
+  reason?: string;
+  runId?: string;
+  policy?: RetryPolicy;
+  force?: boolean;
+}
+
+export interface RetryTaskResult {
+  retried: boolean;
+  decision: RetryDecision;
+  task: TaskWithDependencies;
 }
 
 export class TaskStateService {
@@ -153,20 +165,14 @@ export class TaskStateService {
     });
   }
 
-  markDone(
-    taskId: string,
-    options?: { reason?: string; runId?: string },
-  ): TaskWithDependencies {
+  markDone(taskId: string, options?: { reason?: string; runId?: string }): TaskWithDependencies {
     return this.transition(taskId, 'DONE', {
       reason: options?.reason ?? 'Acceptance criteria and tests passed',
       runId: options?.runId,
     });
   }
 
-  markFailed(
-    taskId: string,
-    options?: { reason?: string; runId?: string },
-  ): TaskWithDependencies {
+  markFailed(taskId: string, options?: { reason?: string; runId?: string }): TaskWithDependencies {
     return this.transition(taskId, 'FAILED', {
       reason: options?.reason ?? 'Execution or verification failed',
       runId: options?.runId,
@@ -188,10 +194,14 @@ export class TaskStateService {
   resume(taskId: string, reason?: string): TaskWithDependencies {
     const current = this.getStatus(taskId);
     if (current !== 'PAUSED') {
-      throw new AppError('ILLEGAL_STATE_TRANSITION', `Cannot resume task '${taskId}': current status is '${current}', not 'PAUSED'`, {
-        taskId,
-        currentStatus: current,
-      });
+      throw new AppError(
+        'ILLEGAL_STATE_TRANSITION',
+        `Cannot resume task '${taskId}': current status is '${current}', not 'PAUSED'`,
+        {
+          taskId,
+          currentStatus: current,
+        },
+      );
     }
     // Mặc định resume đưa về READY để scheduler điều phối an toàn
     return this.transition(taskId, 'READY', {
@@ -209,5 +219,105 @@ export class TaskStateService {
       reason: opts?.reason ?? 'Task cancelled',
       runId: opts?.runId,
     });
+  }
+
+  /**
+   * Kích hoạt chính sách thử lại (ORC-004 Retry Policy).
+   * Kiểm tra nghiêm ngặt: nếu attempts >= max_attempts và không có cờ force,
+   * ném lỗi AppError('MAX_ATTEMPTS_EXCEEDED') để CHẶN retry vô hạn.
+   * Nếu hợp lệ, chuyển task FAILED sang READY và ghi log/event backoff.
+   */
+  retryTask(taskId: string, options?: RetryTaskOptions): RetryTaskResult {
+    const existing = this.taskRepo.findById(taskId);
+    if (!existing) {
+      throw new AppError('TASK_NOT_FOUND', `Task with id '${taskId}' not found`, { taskId });
+    }
+
+    const policy = options?.policy ?? new RetryPolicy();
+    const decision = policy.evaluate(existing);
+
+    if (!decision.shouldRetry && !options?.force) {
+      throw new AppError(
+        'MAX_ATTEMPTS_EXCEEDED',
+        `Cannot retry task '${taskId}': max attempts reached (${existing.attempts}/${existing.max_attempts})`,
+        {
+          taskId,
+          attempts: existing.attempts,
+          maxAttempts: existing.max_attempts,
+          decision,
+        },
+      );
+    }
+
+    // Nếu task đang RUNNING hoặc VERIFYING, đưa về FAILED trước
+    if (existing.status === 'RUNNING' || existing.status === 'VERIFYING') {
+      this.transition(taskId, 'FAILED', {
+        reason: options?.reason ?? 'Task failed prior to retry',
+        runId: options?.runId,
+      });
+    }
+
+    // Chuyển FAILED -> READY cho lần chạy tiếp theo
+    const transitionReason =
+      options?.reason ??
+      `Retry attempt ${existing.attempts + 1} of ${existing.max_attempts} after backoff ${decision.delayMs}ms`;
+
+    const updated = this.transition(taskId, 'READY', {
+      reason: transitionReason,
+      runId: options?.runId,
+    });
+
+    if (options?.runId) {
+      try {
+        this.eventRepo.create({
+          run_id: options.runId,
+          type: 'task_retry',
+          payload: {
+            taskId,
+            attempt: existing.attempts,
+            maxAttempts: existing.max_attempts,
+            delayMs: decision.delayMs,
+            strategy: decision.strategy,
+            nextRetryAt: decision.nextRetryAt,
+            reason: transitionReason,
+          },
+        });
+      } catch (err) {
+        this.logger.warn('Failed to record task_retry event', {
+          taskId,
+          runId: options.runId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    this.logger.info(
+      `Task '${taskId}' queued for retry (${existing.attempts}/${existing.max_attempts})`,
+      {
+        taskId,
+        attempt: existing.attempts,
+        maxAttempts: existing.max_attempts,
+        delayMs: decision.delayMs,
+        strategy: decision.strategy,
+        nextRetryAt: decision.nextRetryAt,
+      },
+    );
+
+    return {
+      retried: true,
+      decision,
+      task: updated,
+    };
+  }
+
+  /**
+   * Reset số lần thử (attempts) của task về giá trị chỉ định (mặc định 0).
+   */
+  resetAttempts(taskId: string, newAttempts = 0): TaskWithDependencies {
+    const existing = this.taskRepo.findById(taskId);
+    if (!existing) {
+      throw new AppError('TASK_NOT_FOUND', `Task with id '${taskId}' not found`, { taskId });
+    }
+    return this.taskRepo.update(taskId, { attempts: Math.max(0, newAttempts) });
   }
 }

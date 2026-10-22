@@ -5,6 +5,7 @@ import {
   TaskParamsSchema,
   TaskPatchBodySchema,
   TaskTransitionBodySchema,
+  TaskRetryBodySchema,
   TaskReadyQuerySchema,
   TaskResolveReadyBodySchema,
 } from '../types.js';
@@ -85,7 +86,10 @@ export const taskRoutes: FastifyPluginAsync<TaskRoutesOptions> = async (fastify,
   const handlePatchRoot = async (request: FastifyRequest) => {
     const body = TaskPatchBodySchema.parse(request.body ?? {});
     if (!body.id) {
-      throw new AppError('INVALID_INPUT', 'Task ID must be provided in URL parameter or request body id property');
+      throw new AppError(
+        'INVALID_INPUT',
+        'Task ID must be provided in URL parameter or request body id property',
+      );
     }
     const { id, ...updateData } = body;
     const updated = taskService.update(id, updateData);
@@ -110,6 +114,21 @@ export const taskRoutes: FastifyPluginAsync<TaskRoutesOptions> = async (fastify,
 
   fastify.post('/tasks/:id/transition', handleTransition);
   fastify.post('/api/tasks/:id/transition', handleTransition);
+
+  // POST /tasks/:id/retry (ORC-004: Retry task with policy checks)
+  const handleRetry = async (request: FastifyRequest) => {
+    const params = TaskParamsSchema.parse(request.params);
+    const body = TaskRetryBodySchema.parse(request.body ?? {});
+    const result = taskService.retry(params.id, {
+      reason: body.reason,
+      runId: body.runId,
+      force: body.force,
+    });
+    return { data: result };
+  };
+
+  fastify.post('/tasks/:id/retry', handleRetry);
+  fastify.post('/api/tasks/:id/retry', handleRetry);
 
   // GET /tasks/:id/allowed-transitions (ORC-001: Query allowed next states)
   const handleAllowedTransitions = async (request: FastifyRequest) => {

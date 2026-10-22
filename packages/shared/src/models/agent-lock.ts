@@ -40,6 +40,8 @@ export const ScheduleNextOptionsSchema = z.object({
   autoVerify: z.boolean().optional(),
   timeoutMs: z.number().optional(),
   lockId: z.string().optional(),
+  autoRetry: z.boolean().optional(),
+  waitBackoff: z.boolean().optional(),
 });
 
 export type ScheduleNextOptions = z.infer<typeof ScheduleNextOptionsSchema>;
@@ -51,6 +53,9 @@ export const ScheduleStepResultSchema = z.object({
   status: z.string().optional(),
   reason: z.string().optional(),
   activeTaskId: z.string().optional(),
+  retried: z.boolean().optional(),
+  delayMs: z.number().optional(),
+  nextRetryAt: z.string().optional(),
 });
 
 export type ScheduleStepResult = z.infer<typeof ScheduleStepResultSchema>;

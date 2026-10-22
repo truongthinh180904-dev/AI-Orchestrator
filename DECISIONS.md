@@ -563,3 +563,44 @@
 - **Sửa Đổi Kiểm Thử Ngoài Phạm Vi Task Cần Thiết**:
   - Cập nhật `packages/db/src/__tests__/migrator.test.ts` phản ánh sự xuất hiện của migration `002_agent_lock.sql` (tổng 2 migrations, bảng `agent_locks`).
 - **Dependencies**: Không thêm bất kỳ dependency bên ngoài nào mới.
+
+## ORC-004: Retry policy (max_attempts, backoff) — Không retry vô hạn
+- **Mục tiêu & Tiêu chuẩn Nghiệm Thu Cốt Lõi**:
+  - Triển khai chính sách thử lại (Retry Policy) có cấu hình `max_attempts` và cơ chế tính toán độ trễ backoff.
+  - Tiêu chuẩn nghiệm thu bất biến của ROADMAP: "Không retry vô hạn". Hệ thống phải bảo đảm dừng lại dứt khoát khi `attempts >= max_attempts`, không bao giờ lặp vô tận trong vòng điều phối tuần tự hay khi gọi qua API.
+- **Mô-đun `RetryPolicy` (`packages/shared/src/retry/retry-policy.ts`)**:
+  - `RetryPolicyOptionsSchema` & `RetryDecisionSchema`:
+    - `max_attempts`: Số lần thử tối đa (mặc định 3, tối thiểu 1).
+    - `strategy`: Chiến lược backoff (`'exponential' | 'linear' | 'fixed'`, mặc định `'exponential'`).
+    - `initial_delay_ms`: Độ trễ cơ sở ban đầu (mặc định 1000ms).
+    - `max_delay_ms`: Giới hạn trần tối đa của độ trễ (mặc định 30000ms).
+    - `backoff_factor`: Hệ số nhân cho exponential backoff (mặc định 2).
+    - `jitter`: Cờ ngẫu nhiên hóa độ trễ (mặc định false).
+    - `jitter_ratio`: Tỷ lệ dao động jitter (mặc định 0.1, tức +/- 10%).
+    - `retryable_statuses`: Danh sách trạng thái được phép retry (mặc định `['FAILED']`).
+  - Hàm `computeBackoffDelay(attempt)`:
+    - Exponential: `initial_delay_ms * Math.pow(backoff_factor, attempt - 1)` capped tại `max_delay_ms`.
+    - Linear: `initial_delay_ms * attempt` capped tại `max_delay_ms`.
+    - Fixed: `initial_delay_ms`.
+    - Jitter: Bổ sung dao động ngẫu nhiên có kiểm soát trong phạm vi `[-jitter_ratio, +jitter_ratio]`.
+  - Hàm `evaluate(task, context)`:
+    - Nếu `task.attempts >= max_attempts`: Lập tức trả về `{ shouldRetry: false, reason: 'MAX_ATTEMPTS_EXCEEDED', delayMs: 0 }`.
+    - Nếu `task.attempts < max_attempts`: Tính toán `delayMs`, tính `nextRetryAt` theo thời gian ISO-8601, trả về `{ shouldRetry: true, reason: 'RETRY_ATTEMPT_ALLOWED' }`.
+- **Tầng Dịch Vụ State Machine (`apps/orchestrator/src/services/task-state-service.ts`)**:
+  - Bổ sung `retryTask(taskId, options)`:
+    - Kiểm tra `policy.evaluate(task)`. Nếu chạm ngưỡng `max_attempts` mà không có cờ `force: true`, ném ngay `AppError('MAX_ATTEMPTS_EXCEEDED')` với mã lỗi và ngữ cảnh chi tiết.
+    - Chuyển đổi trạng thái an toàn: Nếu task đang `RUNNING`/`VERIFYING`, đưa về `FAILED` trước, sau đó chuyển sang `READY` để sẵn sàng cho lần điều phối kế tiếp.
+    - Ghi nhận sự kiện `task_retry` vào bảng `events` SQLite kèm đầy đủ metadata (`attempt`, `maxAttempts`, `delayMs`, `strategy`, `nextRetryAt`, `reason`) phục vụ truy vết lịch sử (audit trail).
+  - Bổ sung `resetAttempts(taskId, newAttempts = 0)`: Cho phép người vận hành reset số lần thử để mở lại chu kỳ xử lý sau sự cố.
+- **Tích Hợp Scheduler (`apps/orchestrator/src/services/task-scheduler.ts`)**:
+  - Tiếp nhận `retryPolicy` và `autoRetry` (mặc định `true`) trong `TaskSchedulerOptions`.
+  - `step(options)`:
+    - Khi worker thất bại (`runStatus !== 'SUCCESS'` hoặc exception), chuyển task sang `FAILED`.
+    - Tự động gọi `this.retryPolicy.evaluate(failedTask)`.
+    - Nếu `shouldRetry`: Chuyển task `FAILED -> READY`, áp dụng `waitBackoff` nếu được yêu cầu, trả về `status: 'RETRYING'`, `retried: true`.
+    - Nếu `!shouldRetry` (đã chạm `max_attempts`): Giữ nguyên trạng thái `FAILED`, log warning, trả về `status: 'FAILED'`, `retried: false`, `reason: 'MAX_ATTEMPTS_EXCEEDED'`.
+  - `runUntilEmpty(options)`: Vòng lặp tuần tự tự động điều phối lại task qua từng attempt cho đến khi thành công hoặc chạm mốc `max_attempts`, sau đó dừng sạch sẽ mà không bao giờ lặp vô tận.
+- **Tầng REST API (`apps/orchestrator/src/routes/tasks.ts`)**:
+  - `POST /tasks/:id/retry` & `POST /api/tasks/:id/retry`: Kích hoạt retry qua API.
+  - Xử lý lỗi tập trung: Map `MAX_ATTEMPTS_EXCEEDED` sang mã HTTP 400 Bad Request kèm thông điệp rõ ràng.
+- **Dependencies**: Không thêm bất kỳ dependency bên ngoài nào mới.

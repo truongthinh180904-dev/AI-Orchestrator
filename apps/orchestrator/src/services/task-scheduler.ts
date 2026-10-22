@@ -1,15 +1,13 @@
 import type Database from 'better-sqlite3';
-import {
-  TaskRepository,
-  AgentLockRepository,
-  RunRepository,
-} from '@ai-orchestrator/db';
+import { TaskRepository, AgentLockRepository, RunRepository } from '@ai-orchestrator/db';
 import {
   type TaskWithDependencies,
   type AgentLock,
   type SchedulerStatus,
   type ScheduleNextOptions,
   type ScheduleStepResult,
+  RetryPolicy,
+  type RetryPolicyInput,
   logger,
 } from '@ai-orchestrator/shared';
 import { TaskStateService } from './task-state-service.js';
@@ -37,6 +35,8 @@ export interface TaskSchedulerOptions {
   runService: RunService;
   lockId?: string;
   autoVerify?: boolean;
+  retryPolicy?: RetryPolicy | RetryPolicyInput;
+  autoRetry?: boolean;
 }
 
 export class TaskScheduler {
@@ -48,6 +48,8 @@ export class TaskScheduler {
   private readonly runService: RunService;
   private readonly lockId: string;
   private readonly autoVerifyDefault: boolean;
+  private readonly retryPolicy: RetryPolicy;
+  private readonly autoRetryDefault: boolean;
 
   private _isRunning = false;
   private _isPaused = false;
@@ -64,6 +66,15 @@ export class TaskScheduler {
     this.stateService = new TaskStateService(this.db);
     this.lockId = options.lockId ?? DEFAULT_AGENT_LOCK_ID;
     this.autoVerifyDefault = options.autoVerify ?? true;
+    this.retryPolicy =
+      options.retryPolicy instanceof RetryPolicy
+        ? options.retryPolicy
+        : new RetryPolicy(options.retryPolicy);
+    this.autoRetryDefault = options.autoRetry ?? true;
+  }
+
+  get retry(): RetryPolicy {
+    return this.retryPolicy;
   }
 
   get isRunning(): boolean {
@@ -256,6 +267,13 @@ export class TaskScheduler {
           reason: 'Execution was cancelled or stopped',
           runId: run.id,
         });
+        const finalTask = this.taskRepo.findById(task.id);
+        return {
+          executed: true,
+          taskId: task.id,
+          runId: run.id,
+          status: finalTask?.status ?? runStatus,
+        };
       } else {
         const failureReason =
           runStatus === 'TIMEOUT'
@@ -265,6 +283,66 @@ export class TaskScheduler {
           reason: failureReason,
           runId: run.id,
         });
+
+        // ORC-004: Retry policy evaluation & backoff
+        const failedTask = this.taskRepo.findById(task.id);
+        const autoRetry = options?.autoRetry ?? this.autoRetryDefault;
+
+        if (failedTask && autoRetry) {
+          const decision = this.retryPolicy.evaluate(failedTask);
+          if (decision.shouldRetry) {
+            // Task has remaining attempts: queue for retry after backoff
+            this.stateService.markReady(
+              task.id,
+              `Retry attempt ${failedTask.attempts + 1} of ${failedTask.max_attempts}: ${failureReason}. Backoff delay: ${decision.delayMs}ms`,
+            );
+
+            // Apply wait if requested
+            if (options?.waitBackoff && decision.delayMs > 0) {
+              await new Promise((resolve) => setTimeout(resolve, decision.delayMs));
+            }
+
+            return {
+              executed: true,
+              taskId: task.id,
+              runId: run.id,
+              status: 'RETRYING',
+              retried: true,
+              delayMs: decision.delayMs,
+              nextRetryAt: decision.nextRetryAt,
+              reason: `Task failed and queued for retry (${failedTask.attempts}/${failedTask.max_attempts})`,
+            };
+          } else {
+            // Reached max_attempts: stays FAILED, halting retries (KHÔNG RETRY VÔ HẠN)
+            logger.warn(
+              `Task '${task.id}' reached max_attempts (${failedTask.attempts}/${failedTask.max_attempts}), halting retries`,
+              {
+                taskId: task.id,
+                attempts: failedTask.attempts,
+                maxAttempts: failedTask.max_attempts,
+              },
+            );
+
+            return {
+              executed: true,
+              taskId: task.id,
+              runId: run.id,
+              status: 'FAILED',
+              retried: false,
+              reason: 'MAX_ATTEMPTS_EXCEEDED',
+            };
+          }
+        }
+
+        const finalTask = this.taskRepo.findById(task.id);
+        return {
+          executed: true,
+          taskId: task.id,
+          runId: run.id,
+          status: finalTask?.status ?? runStatus,
+          retried: false,
+          reason: failureReason,
+        };
       }
 
       const finalTask = this.taskRepo.findById(task.id);
@@ -281,13 +359,41 @@ export class TaskScheduler {
         error: error instanceof Error ? error.message : String(error),
       });
 
+      const errMessage = error instanceof Error ? error.message : 'Unexpected scheduler error';
       try {
         this.stateService.markFailed(task.id, {
-          reason: error instanceof Error ? error.message : 'Unexpected scheduler error',
+          reason: errMessage,
           runId: this._activeRunId ?? undefined,
         });
       } catch {
         // Fallback status update
+      }
+
+      const failedTask = this.taskRepo.findById(task.id);
+      const autoRetry = options?.autoRetry ?? this.autoRetryDefault;
+
+      if (failedTask && autoRetry) {
+        const decision = this.retryPolicy.evaluate(failedTask);
+        if (decision.shouldRetry) {
+          try {
+            this.stateService.markReady(
+              task.id,
+              `Retry attempt ${failedTask.attempts + 1} of ${failedTask.max_attempts} after unexpected error: ${errMessage}`,
+            );
+            return {
+              executed: true,
+              taskId: task.id,
+              runId: this._activeRunId ?? undefined,
+              status: 'RETRYING',
+              retried: true,
+              delayMs: decision.delayMs,
+              nextRetryAt: decision.nextRetryAt,
+              reason: errMessage,
+            };
+          } catch {
+            // Fallback
+          }
+        }
       }
 
       return {
@@ -295,7 +401,8 @@ export class TaskScheduler {
         taskId: task.id,
         runId: this._activeRunId ?? undefined,
         status: 'FAILED',
-        reason: error instanceof Error ? error.message : String(error),
+        retried: false,
+        reason: errMessage,
       };
     } finally {
       // Release lock unconditionally

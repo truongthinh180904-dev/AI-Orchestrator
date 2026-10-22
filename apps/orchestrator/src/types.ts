@@ -54,6 +54,13 @@ export const TaskTransitionBodySchema = z.object({
 });
 export type TaskTransitionBodyInput = z.infer<typeof TaskTransitionBodySchema>;
 
+export const TaskRetryBodySchema = z.object({
+  reason: z.string().optional(),
+  force: z.boolean().optional(),
+  runId: z.string().optional(),
+});
+export type TaskRetryBodyInput = z.infer<typeof TaskRetryBodySchema>;
+
 export const TaskReadyQuerySchema = TaskFilterSchema.extend({
   autoTransition: z
     .union([z.boolean(), z.string()])

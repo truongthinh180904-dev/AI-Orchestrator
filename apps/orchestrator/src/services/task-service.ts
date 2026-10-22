@@ -71,10 +71,7 @@ export class TaskService {
     return this.stateService.getAllowedTransitions(id);
   }
 
-  getReadyTasks(
-    filter?: TaskFilter,
-    options?: ResolveServiceOptions,
-  ): TaskWithDependencies[] {
+  getReadyTasks(filter?: TaskFilter, options?: ResolveServiceOptions): TaskWithDependencies[] {
     return this.resolverService.getReadyTasks(filter, options);
   }
 
@@ -91,5 +88,20 @@ export class TaskService {
 
   resolveReady(filter?: TaskFilter): TaskWithDependencies[] {
     return this.resolverService.resolveAndTransitionReady(filter);
+  }
+
+  retry(
+    id: string,
+    options?: {
+      reason?: string;
+      runId?: string;
+      force?: boolean;
+    },
+  ) {
+    return this.stateService.retryTask(id, options);
+  }
+
+  resetAttempts(id: string, newAttempts = 0): TaskWithDependencies {
+    return this.stateService.resetAttempts(id, newAttempts);
   }
 }
