@@ -13,6 +13,7 @@ import {
   AppError,
   DependencyGraph,
   type CycleDetectionResult,
+  assertValidTaskTransition,
 } from '@ai-orchestrator/shared';
 import { TaskDependencyRepository } from './dependency-repository.js';
 
@@ -531,11 +532,59 @@ export class TaskRepository {
     });
   }
 
+  /**
+   * Chuyển đổi trạng thái task theo quy tắc State Machine (ORC-001).
+   * Kiểm tra nghiêm ngặt tính hợp lệ của chuyển đổi (nếu không dùng force: true).
+   * Chuyển trạng thái trái phép → ném AppError('ILLEGAL_STATE_TRANSITION', ...).
+   */
+  transitionStatus(
+    id: string,
+    status: TaskStatus,
+    options?: { incrementAttempt?: boolean; force?: boolean; reason?: string },
+  ): TaskWithDependencies {
+    const validStatus = TaskStatusSchema.parse(status);
+    const existing = this.findById(id);
+    if (!existing) {
+      throw new AppError('TASK_NOT_FOUND', `Task with id '${id}' not found`, { taskId: id });
+    }
+
+    if (!options?.force) {
+      assertValidTaskTransition(existing.status, validStatus, {
+        taskId: id,
+        reason: options?.reason,
+      });
+    }
+
+    const now = new Date().toISOString();
+    const attempts = options?.incrementAttempt ? existing.attempts + 1 : existing.attempts;
+
+    this.db
+      .prepare('UPDATE tasks SET status = ?, attempts = ?, updated_at = ? WHERE id = ?')
+      .run(validStatus, attempts, now, id);
+
+    const updated = this.findById(id);
+    if (!updated) {
+      throw new AppError('TASK_NOT_FOUND', `Task with id '${id}' not found after status transition`, {
+        taskId: id,
+      });
+    }
+    return updated;
+  }
+
   updateStatus(
     id: string,
     status: TaskStatus,
-    options?: { incrementAttempt?: boolean },
+    options?: {
+      incrementAttempt?: boolean;
+      enforceTransitions?: boolean;
+      force?: boolean;
+      reason?: string;
+    },
   ): TaskWithDependencies {
+    if (options?.enforceTransitions) {
+      return this.transitionStatus(id, status, options);
+    }
+
     const validStatus = TaskStatusSchema.parse(status);
     const existing = this.findById(id);
     if (!existing) {

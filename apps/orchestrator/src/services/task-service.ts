@@ -5,13 +5,21 @@ import {
   type TaskWithDependencies,
   type TaskFilter,
   type UpdateTaskInput,
+  type TaskStatus,
 } from '@ai-orchestrator/shared';
+import { TaskStateService, type TransitionTaskOptions } from './task-state-service.js';
 
 export class TaskService {
   private readonly taskRepo: TaskRepository;
+  private readonly stateService: TaskStateService;
 
   constructor(db: Database.Database) {
     this.taskRepo = new TaskRepository(db);
+    this.stateService = new TaskStateService(db);
+  }
+
+  get state(): TaskStateService {
+    return this.stateService;
   }
 
   list(filter?: TaskFilter, search?: string): TaskWithDependencies[] {
@@ -39,4 +47,17 @@ export class TaskService {
   update(id: string, input: UpdateTaskInput): TaskWithDependencies {
     return this.taskRepo.update(id, input);
   }
+
+  transition(
+    id: string,
+    targetStatus: TaskStatus,
+    options?: TransitionTaskOptions,
+  ): TaskWithDependencies {
+    return this.stateService.transition(id, targetStatus, options);
+  }
+
+  getAllowedTransitions(id: string): readonly TaskStatus[] {
+    return this.stateService.getAllowedTransitions(id);
+  }
 }
+

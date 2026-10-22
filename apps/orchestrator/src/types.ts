@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   TaskFilterSchema,
+  TaskStatusSchema,
   UpdateTaskInputSchema,
   FeatureFilterSchema,
   CreateRunApiSchema,
@@ -42,6 +43,15 @@ export const TaskPatchBodySchema = UpdateTaskInputSchema.extend({
   id: z.string().optional(),
 });
 export type TaskPatchBodyInput = z.infer<typeof TaskPatchBodySchema>;
+
+export const TaskTransitionBodySchema = z.object({
+  status: TaskStatusSchema,
+  reason: z.string().optional(),
+  runId: z.string().optional(),
+  incrementAttempt: z.boolean().optional(),
+  force: z.boolean().optional(),
+});
+export type TaskTransitionBodyInput = z.infer<typeof TaskTransitionBodySchema>;
 
 export const FeatureQuerySchema = FeatureFilterSchema;
 export type FeatureQueryInput = z.infer<typeof FeatureQuerySchema>;

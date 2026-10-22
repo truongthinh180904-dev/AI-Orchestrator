@@ -462,3 +462,35 @@
   - `ExecutionManager`: Bổ sung kiểm tra `if (this.listenerCount('error') > 0)` khi chuyển tiếp sự kiện `'error'` từ `ProcessHandle`, ngăn chặn Node.js EventEmitter ném ngoại lệ `ERR_UNHANDLED_ERROR` khi không có listener cấp cao.
   - `ExecutionStreamRecorder`: Tự động cập nhật `status: 'ERROR'` vào bảng `runs` khi tiến trình con gặp lỗi khởi tạo (`ENOENT` / process error), đồng thời bọc bảo vệ các thao tác database trong khối teardown tránh lỗi khi kết nối database đã đóng.
 - **Dependencies**: Không thêm bất kỳ dependency bên ngoài nào mới.
+
+## ORC-001: State machine task: TODO→READY→RUNNING→VERIFYING→DONE, FAILED, BLOCKED, PAUSED, CANCELLED — Chuyển trạng thái trái phép → throw
+- **Thiết kế State Machine & Bảng Chuyển Đổi Trạng Thái (`packages/shared/src/state/`)**:
+  - Quản lý 9 trạng thái tiêu chuẩn của Task: `TODO`, `READY`, `RUNNING`, `VERIFYING`, `DONE`, `FAILED`, `BLOCKED`, `PAUSED`, `CANCELLED`.
+  - **Chu trình tuyến tính cốt lõi**: `TODO → READY → RUNNING → VERIFYING → DONE`.
+    - `TODO`: Chỉ được chuyển sang `READY` (khi thỏa mãn dependencies), `BLOCKED` (khi bị nghẽn/thiếu tài nguyên), hoặc `CANCELLED`.
+    - `READY`: Chỉ được chuyển sang `RUNNING` (khi scheduler khởi chạy worker), `PAUSED`, `BLOCKED`, `CANCELLED`, hoặc quay về `TODO`.
+    - `RUNNING`: Chỉ được chuyển sang `VERIFYING` (khi code xong, bước vào bước kiểm tra), `FAILED` (khi lỗi/crash/timeout), `PAUSED`, `BLOCKED`, hoặc `CANCELLED`. Tuyệt đối cấm nhảy cóc trực tiếp sang `DONE` (bắt buộc qua `VERIFYING`).
+    - `VERIFYING`: Chỉ được chuyển sang `DONE` (khi mọi tiêu chí nghiệm thu/test pass), `FAILED` (khi test hỏng), `PAUSED`, `BLOCKED`, hoặc `CANCELLED`.
+    - `DONE`: Trạng thái kết thúc (terminal state), không cho phép bất kỳ chuyển đổi nào ra khỏi `DONE` (`ALLOWED_TASK_TRANSITIONS['DONE'] = []`).
+  - **Các nhánh phân nhánh / ngoại lệ**:
+    - `FAILED`: Cho phép chuyển sang `READY` (retry theo chính sách retry ORC-004), `TODO` (re-queue), hoặc `CANCELLED`.
+    - `BLOCKED`: Cho phép chuyển sang `READY` (khi gỡ chặn), `TODO`, `FAILED`, hoặc `CANCELLED`.
+    - `PAUSED`: Cho phép chuyển sang `READY`, `RUNNING`, `VERIFYING`, `TODO`, `FAILED`, hoặc `CANCELLED`.
+    - `CANCELLED`: Cho phép chuyển sang `TODO` (reopen task).
+  - **Quy tắc chuyển cùng trạng thái (`from === to`)**: Mặc định từ chối (`allowSameState: false`) để bảo đảm mọi transition đều là một sự kiện thay đổi trạng thái thực sự; có thể bật bằng cờ tùy chọn khi cần tính idempotent.
+  - **Xử lý chuyển trạng thái trái phép**: Ném ngay `AppError` với mã `ILLEGAL_STATE_TRANSITION`, thông báo rõ trạng thái nguồn, đích, danh sách các trạng thái hợp lệ được phép và lý do (nếu có).
+- **Lớp Domain `TaskStateMachine` (`packages/shared/src/state/task-state-machine.ts`)**:
+  - Quản lý trạng thái hiện tại, lưu trữ lịch sử chuyển đổi (`history`: `[{ from, to, timestamp, reason, meta }]`), hỗ trợ lắng nghe sự kiện qua `onTransition(listener)`.
+  - Cung cấp các phương thức `canTransitionTo(target)`, `transition(target, options)`, `getAllowedTransitions()`, `isTerminal()`, `reset()`, hỗ trợ ghi đè cưỡng bức bằng `force: true` trong trường hợp quản trị đặc biệt.
+- **Tầng Lưu Trữ SQLite (`packages/db/src/repositories/task-repository.ts`)**:
+  - Bổ sung phương thức `transitionStatus(id, newStatus, options)`: Xác thực nghiêm ngặt bằng `assertValidTaskTransition` trước khi thực thi lệnh UPDATE trong SQLite; hỗ trợ tăng số lượt thực thi `incrementAttempt: true`.
+  - Cập nhật `updateStatus(id, newStatus, options)`: Tích hợp tùy chọn `enforceTransitions: true` ủy quyền cho `transitionStatus()`, bảo toàn tính tương thích ngược với các hàm CRUD trước đó.
+- **Tầng Dịch Vụ Orchestrator (`apps/orchestrator/src/services/task-state-service.ts`)**:
+  - Khởi tạo `TaskStateService` điều phối chuyển đổi trạng thái task trong hệ thống.
+  - Cung cấp các hàm ngữ cảnh tiện lợi: `markReady`, `markRunning`, `markVerifying`, `markDone`, `markFailed`, `markBlocked`, `pause`, `resume`, `cancel`.
+  - Tự động ghi nhận sự kiện `task_transition` vào bảng `events` khi có `runId` và xuất log có cấu trúc JSON chuẩn (`timestamp`, `level`, `context`).
+- **Tầng REST API (`apps/orchestrator/src/routes/tasks.ts`)**:
+  - `POST /tasks/:id/transition` & `POST /api/tasks/:id/transition`: Nhận `{ status, reason, runId, incrementAttempt, force }`, validate bằng Zod `TaskTransitionBodySchema`, thực thi chuyển đổi và trả về 200 `{ data: updatedTask }`. Nếu chuyển đổi trái phép, middleware trả về 400 Bad Request với mã `ILLEGAL_STATE_TRANSITION`.
+  - `GET /tasks/:id/allowed-transitions` & `GET /api/tasks/:id/allowed-transitions`: Truy vấn danh sách trạng thái hợp lệ có thể chuyển đến từ trạng thái hiện tại của task.
+- **Dependencies**: Không thêm bất kỳ dependency bên ngoài nào mới.
+
