@@ -75,6 +75,7 @@ export const CreateRunApiSchema = z.object({
   timeoutMs: z.number().int().positive().optional(),
   gracePeriodMs: z.number().int().positive().optional(),
   branch: z.string().optional(),
+  skipLockCheck: z.boolean().optional(),
 });
 export type CreateRunApiInput = z.infer<typeof CreateRunApiSchema>;
 

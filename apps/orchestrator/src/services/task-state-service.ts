@@ -199,9 +199,15 @@ export class TaskStateService {
     });
   }
 
-  cancel(taskId: string, reason?: string): TaskWithDependencies {
+  cancel(
+    taskId: string,
+    reasonOrOptions?: string | { reason?: string; runId?: string },
+  ): TaskWithDependencies {
+    const opts =
+      typeof reasonOrOptions === 'string' ? { reason: reasonOrOptions } : reasonOrOptions;
     return this.transition(taskId, 'CANCELLED', {
-      reason: reason ?? 'Task cancelled',
+      reason: opts?.reason ?? 'Task cancelled',
+      runId: opts?.runId,
     });
   }
 }

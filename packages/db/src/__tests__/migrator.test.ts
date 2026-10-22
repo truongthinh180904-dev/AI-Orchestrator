@@ -10,21 +10,24 @@ describe('Migration Runner', () => {
   it('Chạy migration 2 lần không lỗi (Nghiệm thu FND-003)', () => {
     const db = createDatabase(':memory:');
     try {
-      // First run: executes 001_initial_schema.sql
+      // First run: executes all migrations
       const firstRun = runMigrations(db);
       expect(firstRun).toContain('001_initial_schema.sql');
+      expect(firstRun).toContain('002_agent_lock.sql');
 
       const appliedAfterFirst = getAppliedMigrations(db);
-      expect(appliedAfterFirst.length).toBe(1);
+      expect(appliedAfterFirst.length).toBe(2);
       expect(appliedAfterFirst[0]?.name).toBe('001_initial_schema.sql');
+      expect(appliedAfterFirst[1]?.name).toBe('002_agent_lock.sql');
       expect(appliedAfterFirst[0]?.applied_at).toBeTruthy();
+      expect(appliedAfterFirst[1]?.applied_at).toBeTruthy();
 
       // Second run: idempotent, returns empty array, no error
       const secondRun = runMigrations(db);
       expect(secondRun).toEqual([]);
 
       const appliedAfterSecond = getAppliedMigrations(db);
-      expect(appliedAfterSecond.length).toBe(1);
+      expect(appliedAfterSecond.length).toBe(2);
     } finally {
       db.close();
     }
@@ -47,6 +50,7 @@ describe('Migration Runner', () => {
       expect(tableNames).toContain('runs');
       expect(tableNames).toContain('events');
       expect(tableNames).toContain('reports');
+      expect(tableNames).toContain('agent_locks');
     } finally {
       db.close();
     }

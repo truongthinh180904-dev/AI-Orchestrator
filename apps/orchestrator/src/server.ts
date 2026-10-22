@@ -7,12 +7,14 @@ import { TaskService } from './services/task-service.js';
 import { FeatureService } from './services/feature-service.js';
 import { ImportService } from './services/import-service.js';
 import { RunService } from './services/run-service.js';
+import { TaskScheduler } from './services/task-scheduler.js';
 import { createExecutionManager } from './adapters/execution-manager.js';
 import { healthRoutes } from './routes/health.js';
 import { taskRoutes } from './routes/tasks.js';
 import { featureRoutes } from './routes/features.js';
 import { importRoutes } from './routes/import.js';
 import { runRoutes } from './routes/runs.js';
+import { schedulerRoutes } from './routes/scheduler.js';
 
 export async function buildServer(options: BuildServerOptions): Promise<FastifyInstance> {
   const { db, logger = false } = options;
@@ -43,6 +45,10 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
         case 'FEATURE_ALREADY_EXISTS':
         case 'DUPLICATE_TASK_ID':
         case 'DUPLICATE_FEATURE_ID':
+        case 'CONCURRENCY_LIMIT_EXCEEDED':
+        case 'AGENT_LOCK_HELD':
+        case 'AGENT_BUSY':
+        case 'SCHEDULER_LOCKED':
           statusCode = 409;
           break;
         case 'VALIDATION_ERROR':
@@ -128,12 +134,20 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     config: options.config,
   });
 
+  const taskScheduler =
+    options.taskScheduler ??
+    new TaskScheduler({
+      db,
+      runService,
+    });
+
   // Register routes
   await server.register(healthRoutes);
   await server.register(taskRoutes, { taskService });
   await server.register(featureRoutes, { featureService });
   await server.register(importRoutes, { importService });
   await server.register(runRoutes, { runService });
+  await server.register(schedulerRoutes, { scheduler: taskScheduler });
 
   return server;
 }

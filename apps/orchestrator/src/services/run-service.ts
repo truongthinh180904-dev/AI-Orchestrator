@@ -4,6 +4,7 @@ import {
   RunRepository,
   TaskRepository,
   EventRepository,
+  AgentLockRepository,
 } from '@ai-orchestrator/db';
 import {
   AppError,
@@ -39,6 +40,7 @@ export class RunService {
   private readonly taskRepo: TaskRepository;
   private readonly runRepo: RunRepository;
   private readonly eventRepo: EventRepository;
+  private readonly lockRepo: AgentLockRepository;
   private readonly executionManager: ExecutionManager;
   private readonly repositoryRegistry?: RepositoryRegistry;
   private readonly config: Partial<Env>;
@@ -48,6 +50,7 @@ export class RunService {
     this.taskRepo = new TaskRepository(this.db);
     this.runRepo = new RunRepository(this.db);
     this.eventRepo = new EventRepository(this.db);
+    this.lockRepo = new AgentLockRepository(this.db);
     this.executionManager = options.executionManager ?? defaultExecutionManager;
     this.repositoryRegistry = options.repositoryRegistry;
 
@@ -74,6 +77,35 @@ export class RunService {
   }
 
   async startRun(input: CreateRunApiInput): Promise<{ run: Run; execution: ManagedExecution }> {
+    if (!input.skipLockCheck) {
+      const runningExecutions = this.executionManager.listRunning();
+      if (runningExecutions.length > 0) {
+        throw new AppError(
+          'CONCURRENCY_LIMIT_EXCEEDED',
+          `Cannot start run for task '${input.taskId}': another execution is currently active (${runningExecutions[0]?.runId})`,
+          {
+            activeRunId: runningExecutions[0]?.runId,
+            taskId: input.taskId,
+          },
+        );
+      }
+
+      const activeLock = this.lockRepo.getCurrentLock('default_agent');
+      if (activeLock && activeLock.task_id !== input.taskId) {
+        const lockedTask = this.taskRepo.findById(activeLock.task_id);
+        if (lockedTask && (lockedTask.status === 'RUNNING' || lockedTask.status === 'VERIFYING')) {
+          throw new AppError(
+            'AGENT_LOCK_HELD',
+            `Agent lock is currently held by task '${activeLock.task_id}'`,
+            {
+              lockId: activeLock.id,
+              activeTaskId: activeLock.task_id,
+            },
+          );
+        }
+      }
+    }
+
     const task = this.taskRepo.findById(input.taskId);
     if (!task) {
       throw new AppError('TASK_NOT_FOUND', `Task with id '${input.taskId}' not found`, {
@@ -127,6 +159,22 @@ export class RunService {
       branch: input.branch ?? null,
     });
 
+    // Secure lock in agent_locks if not already held
+    try {
+      if (!this.lockRepo.isLocked('default_agent')) {
+        this.lockRepo.acquire({
+          id: 'default_agent',
+          task_id: task.id,
+          run_id: run.id,
+          owner_pid: process.pid,
+        });
+      } else {
+        this.lockRepo.updateRunId('default_agent', run.id);
+      }
+    } catch {
+      // Lock may have already been acquired by TaskScheduler
+    }
+
     // Update task status and attempt in DB
     try {
       this.taskRepo.update(task.id, {
@@ -164,6 +212,14 @@ export class RunService {
     if (execution.handle.pid) {
       this.runRepo.update(run.id, { pid: execution.handle.pid });
     }
+
+    execution.handle.on('close', () => {
+      try {
+        this.lockRepo.release('default_agent', task.id);
+      } catch {
+        // Ignore release errors
+      }
+    });
 
     const currentRun = this.runRepo.getById(run.id) ?? run;
     return { run: currentRun, execution };
@@ -209,6 +265,7 @@ export class RunService {
     }
 
     const stopped = await this.executionManager.stop(id, options);
+    this.lockRepo.release('default_agent', run.task_id);
     const updated = this.runRepo.getById(id) ?? run;
     return { stopped, run: updated };
   }

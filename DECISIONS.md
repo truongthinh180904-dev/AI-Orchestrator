@@ -528,3 +528,38 @@
 - **Dependencies**: Không thêm bất kỳ dependency bên ngoài nào mới.
 
 
+
+## ORC-003: Scheduler tuần tự, lock 1 agent, chống chạy trùng (transaction SQLite) — Test gọi đồng thời không chạy 2 task
+- **Mục tiêu & Yêu cầu Nghiệm Thu Cốt Lõi**:
+  - Triển khai bộ điều phối tác vụ tuần tự (`TaskScheduler`) cho Orchestrator, tuân thủ nguyên tắc "Concurrency: Tối đa 1 coding process tại một thời điểm".
+  - Tiêu chuẩn nghiệm thu bất biến: "Test gọi đồng thời không chạy 2 task". Khi nhiều tác nhân/yêu cầu kích hoạt song song (concurrent calls), chỉ duy nhất 1 task được khởi chạy, không xảy ra xung đột hay chạy trùng lặp tác vụ.
+- **Cơ Chế Khóa Agent Bằng SQLite Transaction & Bảng `agent_locks` (`packages/db/migrations/002_agent_lock.sql`)**:
+  - Bổ sung migration đánh số `002_agent_lock.sql` theo đúng chuẩn `SKILL-sqlite.md`, định nghĩa bảng `agent_locks` (`id` PK, `task_id` FK, `run_id` FK, `acquired_at`, `owner_pid`, `metadata`).
+  - Lớp `AgentLockRepository` (`packages/db/src/repositories/agent-lock-repository.ts`):
+    - Quản lý vòng đời khóa agent (`acquire`, `release`, `updateRunId`, `getCurrentLock`, `isLocked`, `forceRelease`).
+    - Ném lỗi `AppError('AGENT_LOCK_HELD')` khi khóa đang bị chiếm giữ.
+- **Dịch Vụ Điều Phối `TaskScheduler` (`apps/orchestrator/src/services/task-scheduler.ts`)**:
+  - `acquireNextTask()`:
+    - Bọc toàn bộ logic kiểm tra và chiếm quyền thực thi trong một SQLite Transaction chế độ tức thời (`tx.immediate()`), bảo đảm tính nguyên tử (atomicity) tuyệt đối ở tầng cơ sở dữ liệu.
+    - Kiểm tra tính hợp lệ của lock hiện tại; tự động dọn dẹp stale lock nếu task cũ đã hoàn tất hoặc bị hủy.
+    - Kiểm tra bảng `tasks` và `runs`: Nếu có bất kỳ task nào đang `RUNNING`/`VERIFYING` hoặc run nào đang `RUNNING`, lập tức từ chối với lý do `LOCK_HELD`, `CONCURRENCY_LIMIT_EXCEEDED` hoặc `ACTIVE_RUN_EXISTS`.
+    - Trích xuất candidate task từ `DependencyResolver` (`findReadyTasks` với candidateStatuses `['READY', 'TODO']`, ưu tiên `priority DESC`, `created_at ASC`, `id ASC`).
+    - Chuyển trạng thái task sang `RUNNING` (tăng attempt) và ghi bản ghi vào `agent_locks`.
+  - `step()`: Thực hiện 1 chu kỳ điều phối hoàn chỉnh (acquire task -> gọi `RunService.startRun` -> giám sát tiến trình worker qua mock CLI/AGY -> cập nhật state machine task `RUNNING -> VERIFYING -> DONE/FAILED/CANCELLED` -> tự động giải phóng lock trong khối `finally`).
+  - `runUntilEmpty()`: Vòng lặp điều phối tuần tự (sequential loop), xử lý lần lượt từng task đến khi hết task sẵn sàng hoặc có lệnh dừng/tạm dừng.
+  - Hỗ trợ các cơ chế điều khiển vận hành: `pause()`, `resume()`, `stop()` (hỗ trợ ngắt tiến trình worker đang chạy qua `RunService.stopRun`), `getStatus()`, `releaseLock()`.
+- **Đồng Bộ Kiểm Soát Concurrency Tầng `RunService` (`apps/orchestrator/src/services/run-service.ts`)**:
+  - Bổ sung kiểm tra concurrency nghiêm ngặt trong `startRun`: Từ chối với lỗi `CONCURRENCY_LIMIT_EXCEEDED` hoặc `AGENT_LOCK_HELD` (HTTP 409 Conflict) nếu có một tiến trình worker khác đang hoạt động, ngăn chặn hoàn toàn việc gọi trực tiếp `POST /runs` phá vỡ giới hạn concurrency.
+  - Tự động giải phóng lock trên sự kiện process `close` hoặc khi gọi `stopRun`.
+- **Tầng REST API Điều Khiển Scheduler (`apps/orchestrator/src/routes/scheduler.ts`)**:
+  - `POST /scheduler/next` & `POST /api/scheduler/next`: Kích hoạt bước điều phối kế tiếp.
+  - `GET /scheduler/status` & `GET /api/scheduler/status`: Truy vấn trạng thái thời gian thực.
+  - `POST /scheduler/start` & `POST /api/scheduler/start`: Khởi chạy vòng lặp tuần tự nền.
+  - `POST /scheduler/pause` & `POST /scheduler/resume`: Tạm dừng / tiếp tục điều phối.
+  - `POST /scheduler/stop` & `POST /api/scheduler/stop`: Dừng scheduler và hủy run đang chạy.
+  - `POST /scheduler/release-lock`: Cưỡng bức giải phóng khóa agent khi cần can thiệp vận hành.
+- **Cập Nhật Schema Mô Hình `@ai-orchestrator/shared`**:
+  - `AgentLockSchema`, `CreateAgentLockSchema`, `SchedulerStatusSchema`, `ScheduleNextOptionsSchema`, `ScheduleStepResultSchema`.
+- **Sửa Đổi Kiểm Thử Ngoài Phạm Vi Task Cần Thiết**:
+  - Cập nhật `packages/db/src/__tests__/migrator.test.ts` phản ánh sự xuất hiện của migration `002_agent_lock.sql` (tổng 2 migrations, bảng `agent_locks`).
+- **Dependencies**: Không thêm bất kỳ dependency bên ngoài nào mới.
