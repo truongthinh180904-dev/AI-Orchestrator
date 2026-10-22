@@ -18,7 +18,7 @@ Trạng thái: `TODO` | `IN_PROGRESS` | `DONE` | `FAILED` | `BLOCKED`
 | TSK-006 | DONE | 1 | a2d362f | Hoàn thành lúc 2026-10-23 02:53 +07:00 |
 | TSK-007 | DONE | 1 | 06fa145 | Hoàn thành lúc 2026-10-23 03:12 +07:00 |
 | AGY-001 | DONE | 1 | b64c436 | Hoàn thành lúc 2026-10-23 03:27 +07:00 |
-| AGY-002 | TODO | 0 | | |
+| AGY-002 | DONE | 1 | 488b041 | Hoàn thành lúc 2026-10-23 03:41 +07:00 |
 | AGY-003 | TODO | 0 | | |
 | AGY-004 | TODO | 0 | | |
 | AGY-005 | TODO | 0 | | |
