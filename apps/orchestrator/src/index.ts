@@ -1,5 +1,5 @@
 export * from './config.js';
-export * from './adapters/git.js';
+export * from './adapters/index.js';
 export * from './types.js';
 export * from './server.js';
 export * from './main.js';

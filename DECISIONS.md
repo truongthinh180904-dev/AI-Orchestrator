@@ -253,3 +253,21 @@
   - 11 unit tests cho `ApiClient` với các kịch bản JSON, multipart FormData, xử lý lỗi mạng và unwrap `AppError`.
   - 11 component tests với `@testing-library/react` mô phỏng đầy đủ tương tác người dùng: nhập form, chuyển tab CSV, kích hoạt preview, kiểm tra trạng thái disabled của nút Xác nhận khi có lỗi, và luồng commit thành công.
   - 5 acceptance tests trong `test/tsk-007.test.ts` khởi động máy chủ Fastify và SQLite in-memory thật, xác thực rằng người dùng thao tác qua UI client thực sự preview được file mẫu, xác nhận dry-run không làm thay đổi DB, và xác nhận thao tác commit ghi nhận chính xác 100% dữ liệu vào SQLite.
+
+## AGY-001: ProcessAdapter: spawn(exe, args[]), cwd, env whitelist, trả handle
+- **Nguyên tắc an toàn tiến trình (Process Security)**:
+  - Tuân thủ nghiêm ngặt `AGENTS.md` và `SKILL-process-ndjson.md`: Tuyệt đối không dùng shell (`shell: false`). Cấm ghép chuỗi lệnh từ input động, chỉ nhận `exe` và mảng đối số `args: string[]`.
+  - Kiểm tra và xác thực `AgentCommand` bằng schema `AgentCommandSchema` (`zod`).
+  - Kiểm tra hợp lệ thư mục làm việc `cwd` bằng `fs.existsSync` và `fs.statSync().isDirectory()`. Nếu không hợp lệ, ném `AppError('INVALID_WORKING_DIRECTORY')` trước khi gọi `spawn`.
+- **Cơ chế Env Whitelist an toàn (Không lộ secrets/tokens)**:
+  - Xây dựng hàm `buildProcessEnv()` trong `packages/shared/src/models/agent-command.ts`.
+  - Mặc định chỉ lọc và cho phép các biến hệ thống cơ bản cần thiết trong `DEFAULT_ENV_WHITELIST` (`PATH`, `HOME`, `USER`, `SHELL`, `TMPDIR`, `LANG`, `TERM`, `NODE_ENV`, `NODE_PATH`, `SSH_AUTH_SOCK`, `GIT_EXEC_PATH`, `AGY_BIN`, `AGY_ARGS`, v.v.).
+  - Mọi biến nhạy cảm như secret keys, passwords, database credentials, API tokens trong `process.env` đều bị loại trừ hoàn toàn khỏi tiến trình con.
+  - Cho phép người gọi bổ sung biến chủ đích qua `command.env` hoặc mở rộng danh sách trắng qua `command.extraEnvWhitelist`.
+- **ProcessHandle & Quản lý vòng đời tiến trình**:
+  - `ProcessAdapter.spawn()` trả về đối tượng `ProcessHandle` (kế thừa `EventEmitter`) cung cấp: `pid`, `child`, `stdout` (Readable), `stderr` (Readable), `command`, `startedAt`, `isRunning()`, `waitForExit(): Promise<ProcessExitResult>`, `kill(signal)`, `getExitResult()`.
+  - Chờ sự kiện `close` (thay vì chỉ `exit`) để đảm bảo các luồng `stdout` và `stderr` đã được flush hoàn toàn theo hướng dẫn tại `SKILL-process-ndjson.md`.
+  - Bắt lỗi bất đồng bộ khi khởi tạo tiến trình (ví dụ lỗi `ENOENT` khi binary không tồn tại) mà không gây unhandled promise rejection; đồng thời đảm bảo `waitForExit()` reject bằng `AppError('PROCESS_EXECUTION_ERROR')`.
+  - Hỗ trợ cờ `detached` cho phép kill process group (`process.kill(-pid, signal)`) khi tiến trình con tạo sub-processes.
+- **Dependencies**: Không thêm dependency mới (sử dụng `node:child_process`, `node:events`, `node:fs`, `node:path`, `zod` và `@ai-orchestrator/shared`).
+
