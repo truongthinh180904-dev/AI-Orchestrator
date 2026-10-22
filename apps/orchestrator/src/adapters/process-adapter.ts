@@ -12,6 +12,7 @@ import {
   type ProcessExitResult,
   type TerminateProcessOptions,
 } from '@ai-orchestrator/shared';
+import type { RepositoryRegistry } from './repository-registry.js';
 
 export interface ProcessHandle extends EventEmitter {
   readonly pid: number | undefined;
@@ -122,11 +123,7 @@ export class ProcessHandleImpl extends EventEmitter implements ProcessHandle {
   }
 
   isRunning(): boolean {
-    return (
-      this._running &&
-      this.child.exitCode === null &&
-      this.child.signalCode === null
-    );
+    return this._running && this.child.exitCode === null && this.child.signalCode === null;
   }
 
   getExitResult(): ProcessExitResult | null {
@@ -197,10 +194,23 @@ export class ProcessHandleImpl extends EventEmitter implements ProcessHandle {
 export interface ProcessAdapterOptions {
   defaultEnvWhitelist?: readonly string[];
   baseEnv?: Record<string, string | undefined>;
+  repositoryRegistry?: RepositoryRegistry;
 }
 
 export class ProcessAdapter {
-  constructor(private readonly options: ProcessAdapterOptions = {}) {}
+  private _repositoryRegistry?: RepositoryRegistry;
+
+  constructor(private readonly options: ProcessAdapterOptions = {}) {
+    this._repositoryRegistry = options.repositoryRegistry;
+  }
+
+  getRepositoryRegistry(): RepositoryRegistry | undefined {
+    return this._repositoryRegistry;
+  }
+
+  setRepositoryRegistry(registry: RepositoryRegistry | undefined): void {
+    this._repositoryRegistry = registry;
+  }
 
   /**
    * Spawns a child process safely without shell execution.
@@ -246,31 +256,35 @@ export class ProcessAdapter {
 
     const command = parseResult.data;
 
-    // 2. Validate cwd exists and is directory
-    if (!fs.existsSync(command.cwd)) {
-      throw new AppError(
-        'INVALID_WORKING_DIRECTORY',
-        `Working directory does not exist: ${command.cwd}`,
-        { cwd: command.cwd },
-      );
-    }
-
-    try {
-      const stat = fs.statSync(command.cwd);
-      if (!stat.isDirectory()) {
+    // 2. Validate cwd exists, is directory, and belongs to registered repository if registry is set
+    if (this._repositoryRegistry) {
+      this._repositoryRegistry.assertCwdValid(command.cwd);
+    } else {
+      if (!fs.existsSync(command.cwd)) {
         throw new AppError(
           'INVALID_WORKING_DIRECTORY',
-          `Working directory path is not a directory: ${command.cwd}`,
+          `Working directory does not exist: ${command.cwd}`,
           { cwd: command.cwd },
         );
       }
-    } catch (err) {
-      if (err instanceof AppError) throw err;
-      throw new AppError(
-        'INVALID_WORKING_DIRECTORY',
-        `Failed to inspect working directory: ${err instanceof Error ? err.message : String(err)}`,
-        { cwd: command.cwd },
-      );
+
+      try {
+        const stat = fs.statSync(command.cwd);
+        if (!stat.isDirectory()) {
+          throw new AppError(
+            'INVALID_WORKING_DIRECTORY',
+            `Working directory path is not a directory: ${command.cwd}`,
+            { cwd: command.cwd },
+          );
+        }
+      } catch (err) {
+        if (err instanceof AppError) throw err;
+        throw new AppError(
+          'INVALID_WORKING_DIRECTORY',
+          `Failed to inspect working directory: ${err instanceof Error ? err.message : String(err)}`,
+          { cwd: command.cwd },
+        );
+      }
     }
 
     // 3. Build safe environment via whitelist

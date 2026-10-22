@@ -386,3 +386,30 @@
 - **Tính Tất định trong Kiểm thử (Test Reliability)**:
   - Để tránh race condition khi Vitest chạy đồng thời 37 worker processes khiến tiến trình con chưa kịp khởi động đã nhận tín hiệu, các kịch bản kiểm thử tiến trình ngoan cố sử dụng cơ chế đồng bộ qua file cờ `readyFile` (`fs.writeFileSync`) ngay sau khi đăng ký `process.on('SIGTERM')`. Điều này đảm bảo 100% tính tất định và ổn định trên mọi môi trường.
 - **Dependencies**: Không thêm dependency bên ngoài mới (sử dụng thư viện Node.js có sẵn `node:child_process`, `node:events`, `node:fs`, `node:path`, `node:os`).
+
+## AGY-006: Chạy trong working dir/worktree cô lập, kiểm tra cwd thuộc repo đã đăng ký — Cwd sai bị từ chối
+- **Vị trí Module**:
+  - `packages/shared/src/models/workspace.ts`: Định nghĩa schema & types cho `RegisteredRepository`, `RegisterRepositoryInput`, `WorktreeInfo`, và `CreateWorktreeOptions`. Re-export qua `packages/shared/src/models/index.ts` và `@ai-orchestrator/shared`.
+  - `packages/shared/src/git.ts`: Cung cấp hàm `runGitCommand`, `parseGitWorktreeList`, `gitWorktreeList`, `gitWorktreeAdd`, `gitWorktreeRemove`, `gitWorktreePrune`.
+  - `apps/orchestrator/src/adapters/repository-registry.ts`: Triển khai lớp `RepositoryRegistry`, singleton `defaultRepositoryRegistry`, và hàm `createRepositoryRegistry()`.
+  - `apps/orchestrator/src/adapters/worktree-manager.ts`: Triển khai lớp `WorktreeManager`, singleton `defaultWorktreeManager`, và hàm `createWorktreeManager()`.
+  - `apps/orchestrator/src/adapters/process-adapter.ts`: Tích hợp xác thực cwd thông qua `RepositoryRegistry` trước khi spawn process.
+  - `apps/orchestrator/src/adapters/execution-manager.ts`: Tích hợp hỗ trợ `RepositoryRegistry` và thực thi trên `IsolatedWorktree`.
+  - `apps/orchestrator/src/adapters/git.ts` & `apps/orchestrator/src/index.ts`: Re-export toàn bộ công cụ workspace, worktree, và registry.
+- **Cơ chế Kiểm tra CWD & Ranh giới Repo Đã Đăng ký (`RepositoryRegistry`)**:
+  - Chỉ cho phép tiến trình worker thực thi trong các thư mục làm việc (cwd) thuộc một repository đã đăng ký hoặc một worktree cô lập được cấp quyền gắn liền với repository đó.
+  - Chuẩn hóa đường dẫn canonical bằng `path.resolve` và `fs.realpathSync`, triệt để ngăn chặn các kỹ thuật tấn công thoát ranh giới:
+    - Path traversal: dùng `..` để nhảy ra ngoài cây thư mục repo đã đăng ký.
+    - Symlink escape: tạo symlink bên trong repo trỏ tới thư mục nhạy cảm bên ngoài (`/tmp`, `/etc`, v.v.).
+    - Thư mục không tồn tại hoặc trỏ tới file thông thường.
+  - Khi cwd không hợp lệ hoặc nằm ngoài danh sách đăng ký: Ném ngay `AppError` với mã lỗi `UNREGISTERED_REPOSITORY` hoặc `INVALID_WORKING_DIRECTORY` kèm ngữ cảnh chi tiết trước khi bất kỳ tiến trình con nào được khởi tạo (`Cwd sai bị từ chối`).
+- **Cơ chế Worktree Cô lập (`WorktreeManager`)**:
+  - Tuân thủ hướng dẫn tại `SKILL-git-release.md`: khởi tạo worktree cô lập bằng lệnh git an toàn không qua shell:
+    `git worktree add -b agy/<task-id>[-<slug>] <worktreePath> [commitOrBranch]`
+  - Worktree tạo ra được tự động đăng ký vào `RepositoryRegistry` như một workspace hợp lệ thuộc repo cha, cho phép tiến trình worker chạy trong thư mục worktree đó mà không bị chặn bởi bộ kiểm tra ranh giới.
+  - Mọi thao tác sửa đổi file, tạo file mới trong worktree cô lập hoàn toàn không ảnh hưởng hay làm bẩn (`git status --porcelain`) working tree của repository gốc.
+  - Hỗ trợ dọn dẹp an toàn: `git worktree remove` (kèm cờ `force: true` khi có thay đổi chưa commit) và tự động thu hồi quyền cwd khỏi `RepositoryRegistry`.
+- **Tích hợp Tầng Process Adapter & Execution Manager**:
+  - `ProcessAdapter` nhận tùy chọn `repositoryRegistry`. Trong `spawn()`, nếu registry được cấu hình, gọi `registry.assertCwdValid(command.cwd)`.
+  - `ExecutionManager.startRun()` hỗ trợ nhận trực tiếp tham số `worktree?: IsolatedWorktree`, tự động trỏ `command.cwd` vào thư mục worktree và kiểm tra tính hợp lệ trước khi bắt đầu thực thi.
+- **Dependencies**: Không thêm dependency bên ngoài mới (sử dụng thư viện Node.js có sẵn `node:child_process`, `node:fs`, `node:path`, `node:os`, `node:crypto`).

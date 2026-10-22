@@ -5,11 +5,7 @@ import {
   type TerminateProcessOptions,
   STANDARD_EVENT_TYPES,
 } from '@ai-orchestrator/shared';
-import {
-  processAdapter,
-  ProcessAdapter,
-  type ProcessHandle,
-} from './process-adapter.js';
+import { processAdapter, ProcessAdapter, type ProcessHandle } from './process-adapter.js';
 import {
   attachExecutionStream,
   type ExecutionStreamRecorder,
@@ -17,6 +13,8 @@ import {
   type RunRecorderTarget,
   type ExecutionCompletionResult,
 } from './execution-stream.js';
+import type { RepositoryRegistry } from './repository-registry.js';
+import type { IsolatedWorktree } from './worktree-manager.js';
 
 export interface StopRunOptions {
   gracePeriodMs?: number;
@@ -29,6 +27,8 @@ export interface StartRunOptions {
   runId: string;
   taskId?: string;
   command: AgentCommandInput;
+  worktree?: IsolatedWorktree;
+  repositoryRegistry?: RepositoryRegistry;
   timeoutMs?: number;
   gracePeriodMs?: number;
   processAdapter?: ProcessAdapter;
@@ -71,17 +71,20 @@ export interface ManagedExecution {
 export interface ExecutionManagerOptions {
   defaultGracePeriodMs?: number;
   defaultProcessAdapter?: ProcessAdapter;
+  repositoryRegistry?: RepositoryRegistry;
 }
 
 export class ExecutionManager extends EventEmitter {
   private readonly _runs = new Map<string, ManagedExecution>();
   private readonly _defaultGracePeriodMs: number;
   private readonly _processAdapter: ProcessAdapter;
+  private readonly _repositoryRegistry?: RepositoryRegistry;
 
   constructor(options: ExecutionManagerOptions = {}) {
     super();
     this._defaultGracePeriodMs = Math.max(0, options.defaultGracePeriodMs ?? 10_000);
     this._processAdapter = options.defaultProcessAdapter ?? processAdapter;
+    this._repositoryRegistry = options.repositoryRegistry;
   }
 
   /**
@@ -93,6 +96,8 @@ export class ExecutionManager extends EventEmitter {
       runId,
       taskId,
       command,
+      worktree,
+      repositoryRegistry: customRegistry,
       timeoutMs,
       gracePeriodMs = this._defaultGracePeriodMs,
       processAdapter: customAdapter,
@@ -104,6 +109,17 @@ export class ExecutionManager extends EventEmitter {
       recordLifecycle,
       initialSeq,
     } = options;
+
+    // If worktree is provided and command.cwd was not specified or empty, use worktree path
+    if (worktree && !command.cwd) {
+      command.cwd = worktree.worktreePath;
+    }
+
+    // Verify cwd with repository registry if configured
+    const registry = customRegistry ?? this._repositoryRegistry;
+    if (registry) {
+      registry.assertCwdValid(command.cwd);
+    }
 
     const adapter = customAdapter ?? this._processAdapter;
     const handle = adapter.spawn(command);

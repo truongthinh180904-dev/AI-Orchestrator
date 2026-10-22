@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import { AppError } from './errors.js';
+import type { WorktreeInfo } from './models/workspace.js';
 
 export interface GitFileStatus {
   path: string;
@@ -71,7 +72,7 @@ export function parseGitPorcelain(rawOutput: string): GitFileStatus[] {
   return files;
 }
 
-function runGitCommand(
+export function runGitCommand(
   args: string[],
   cwd: string,
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
@@ -244,4 +245,191 @@ export async function checkRepoClean(
   }
 
   return status;
+}
+
+/**
+ * Parses raw output from `git worktree list --porcelain`.
+ */
+export function parseGitWorktreeList(rawOutput: string): WorktreeInfo[] {
+  const lines = rawOutput.split(/\r?\n/);
+  const worktrees: WorktreeInfo[] = [];
+
+  let current: Partial<WorktreeInfo> | null = null;
+
+  const flushCurrent = () => {
+    if (current && current.path && current.head) {
+      worktrees.push({
+        path: current.path,
+        head: current.head,
+        branch: current.branch ?? null,
+        isBare: current.isBare ?? false,
+        isDetached: current.isDetached ?? false,
+        isLocked: current.isLocked ?? false,
+        lockReason: current.lockReason ?? null,
+        prunable: current.prunable ?? null,
+      });
+    }
+    current = null;
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      flushCurrent();
+      continue;
+    }
+
+    if (trimmed.startsWith('worktree ')) {
+      flushCurrent();
+      current = {
+        path: trimmed.slice('worktree '.length).trim(),
+        isBare: false,
+        isDetached: false,
+        isLocked: false,
+      };
+    } else if (current) {
+      if (trimmed.startsWith('HEAD ')) {
+        current.head = trimmed.slice('HEAD '.length).trim();
+      } else if (trimmed.startsWith('branch ')) {
+        const fullBranch = trimmed.slice('branch '.length).trim();
+        const branchName = fullBranch.startsWith('refs/heads/')
+          ? fullBranch.slice('refs/heads/'.length)
+          : fullBranch;
+        current.branch = branchName;
+      } else if (trimmed === 'bare') {
+        current.isBare = true;
+      } else if (trimmed === 'detached') {
+        current.isDetached = true;
+      } else if (trimmed.startsWith('locked')) {
+        current.isLocked = true;
+        const reason = trimmed.slice('locked'.length).trim();
+        current.lockReason = reason.length > 0 ? reason : null;
+      } else if (trimmed.startsWith('prunable')) {
+        const reason = trimmed.slice('prunable'.length).trim();
+        current.prunable = reason.length > 0 ? reason : 'prunable';
+      }
+    }
+  }
+
+  flushCurrent();
+  return worktrees;
+}
+
+/**
+ * Retrieves the list of worktrees for a repository using `git worktree list --porcelain`.
+ */
+export async function gitWorktreeList(repoPath: string): Promise<WorktreeInfo[]> {
+  const { stdout, stderr, exitCode } = await runGitCommand(
+    ['worktree', 'list', '--porcelain'],
+    repoPath,
+  );
+
+  if (exitCode !== 0) {
+    throw new AppError(
+      'GIT_WORKTREE_ERROR',
+      `git worktree list failed: ${stderr.trim() || `Exit code ${exitCode}`}`,
+      { repoPath, stderr, exitCode },
+    );
+  }
+
+  return parseGitWorktreeList(stdout);
+}
+
+export interface GitWorktreeAddOptions {
+  worktreePath: string;
+  branch?: string;
+  newBranch?: boolean;
+  commitOrBranch?: string;
+  force?: boolean;
+  detach?: boolean;
+}
+
+/**
+ * Creates an isolated git worktree via `git worktree add`.
+ */
+export async function gitWorktreeAdd(
+  repoPath: string,
+  options: GitWorktreeAddOptions,
+): Promise<{ worktreePath: string; branch?: string }> {
+  const args = ['worktree', 'add'];
+  const isNewBranch = options.newBranch ?? true;
+
+  if (options.force) {
+    args.push('--force');
+  }
+
+  if (options.detach) {
+    args.push('--detach');
+  } else if (options.branch) {
+    if (isNewBranch) {
+      args.push('-b', options.branch);
+    }
+  }
+
+  args.push(options.worktreePath);
+
+  if (options.commitOrBranch) {
+    args.push(options.commitOrBranch);
+  } else if (!isNewBranch && options.branch) {
+    args.push(options.branch);
+  }
+
+  const { stderr, exitCode } = await runGitCommand(args, repoPath);
+
+  if (exitCode !== 0) {
+    throw new AppError(
+      'GIT_WORKTREE_ERROR',
+      `git worktree add failed: ${stderr.trim() || `Exit code ${exitCode}`}`,
+      { repoPath, options, stderr, exitCode },
+    );
+  }
+
+  return {
+    worktreePath: options.worktreePath,
+    branch: options.branch,
+  };
+}
+
+export interface GitWorktreeRemoveOptions {
+  force?: boolean;
+}
+
+/**
+ * Removes a git worktree via `git worktree remove`.
+ */
+export async function gitWorktreeRemove(
+  repoPath: string,
+  worktreePath: string,
+  options?: GitWorktreeRemoveOptions,
+): Promise<void> {
+  const args = ['worktree', 'remove'];
+  if (options?.force) {
+    args.push('--force');
+  }
+  args.push(worktreePath);
+
+  const { stderr, exitCode } = await runGitCommand(args, repoPath);
+
+  if (exitCode !== 0) {
+    throw new AppError(
+      'GIT_WORKTREE_ERROR',
+      `git worktree remove failed: ${stderr.trim() || `Exit code ${exitCode}`}`,
+      { repoPath, worktreePath, stderr, exitCode },
+    );
+  }
+}
+
+/**
+ * Prunes expired or deleted worktrees via `git worktree prune`.
+ */
+export async function gitWorktreePrune(repoPath: string): Promise<void> {
+  const { stderr, exitCode } = await runGitCommand(['worktree', 'prune'], repoPath);
+
+  if (exitCode !== 0) {
+    throw new AppError(
+      'GIT_WORKTREE_ERROR',
+      `git worktree prune failed: ${stderr.trim() || `Exit code ${exitCode}`}`,
+      { repoPath, stderr, exitCode },
+    );
+  }
 }

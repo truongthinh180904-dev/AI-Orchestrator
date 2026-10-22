@@ -6,5 +6,6 @@ export * from './main.js';
 export * from './services/task-service.js';
 export * from './services/feature-service.js';
 export * from './services/import-service.js';
+export { AppError } from '@ai-orchestrator/shared';
 
 export const orchestratorReady = true;
