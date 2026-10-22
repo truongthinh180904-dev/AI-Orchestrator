@@ -11,6 +11,8 @@ import {
   TaskFilterSchema,
   TaskStatusSchema,
   AppError,
+  DependencyGraph,
+  type CycleDetectionResult,
 } from '@ai-orchestrator/shared';
 import { TaskDependencyRepository } from './dependency-repository.js';
 
@@ -442,7 +444,32 @@ export class TaskRepository {
       }
     }
 
-    // 5. Atomic transaction insert: chèn toàn bộ tasks trước, sau đó chèn dependencies
+    // 5. Kiểm tra chu trình phụ thuộc (Circular Dependency Check)
+    const existingDeps = this.depRepo.getAll();
+    const batchGraph = new DependencyGraph();
+    for (const dep of existingDeps) {
+      batchGraph.addDependency(dep.task_id, dep.depends_on_id);
+    }
+    for (const task of validatedTasks) {
+      batchGraph.addNode(task.id, task.priority ?? 0);
+      const deps = task.dependencies ?? [];
+      for (const dep of deps) {
+        batchGraph.addDependency(task.id, dep);
+      }
+    }
+    const cycleResult = batchGraph.detectCycleDFS();
+    if (cycleResult.hasCycle && cycleResult.cycle) {
+      throw new AppError(
+        'CIRCULAR_DEPENDENCY_ERROR',
+        `Cannot create tasks: circular dependency detected: ${cycleResult.cyclePathString}`,
+        {
+          cycle: cycleResult.cycle,
+          cyclePathString: cycleResult.cyclePathString,
+        },
+      );
+    }
+
+    // 6. Atomic transaction insert: chèn toàn bộ tasks trước, sau đó chèn dependencies
     const now = new Date().toISOString();
     const insertTaskStmt = this.db.prepare(`
       INSERT INTO tasks (
@@ -529,6 +556,39 @@ export class TaskRepository {
       });
     }
     return updated;
+  }
+
+  detectCycle(options?: { algorithm?: 'dfs' | 'kahn' }): CycleDetectionResult {
+    const tasks = this.findAll();
+    const graph = new DependencyGraph();
+    for (const task of tasks) {
+      graph.addNode(task.id, task.priority);
+      for (const depId of task.dependencies) {
+        graph.addDependency(task.id, depId);
+      }
+    }
+    return graph.detectCycle(options);
+  }
+
+  getExecutionOrder(taskIds?: string[]): string[] {
+    const allTasks = this.findAll();
+    const graph = new DependencyGraph();
+
+    for (const task of allTasks) {
+      graph.addNode(task.id, task.priority);
+      for (const depId of task.dependencies) {
+        graph.addDependency(task.id, depId);
+      }
+    }
+
+    const fullOrder = graph.topologicalSort();
+
+    if (!taskIds || taskIds.length === 0) {
+      return fullOrder;
+    }
+
+    const requestedSet = new Set(taskIds);
+    return fullOrder.filter((id) => requestedSet.has(id));
   }
 
   private handleSqliteError(error: unknown, taskId: string): never {

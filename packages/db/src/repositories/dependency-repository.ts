@@ -4,6 +4,7 @@ import {
   type TaskDependency,
   TaskDependencySchema,
   AppError,
+  DependencyGraph,
 } from '@ai-orchestrator/shared';
 
 export class TaskDependencyRepository {
@@ -21,6 +22,21 @@ export class TaskDependencyRepository {
       task_id: taskId,
       depends_on_id: dependsOnId,
     });
+
+    // Kiểm tra xem việc thêm dependency có tạo chu trình không
+    const cycleCheck = this.getCycleIfAdded(validated.task_id, validated.depends_on_id);
+    if (cycleCheck.hasCycle && cycleCheck.cycle) {
+      throw new AppError(
+        'CIRCULAR_DEPENDENCY_ERROR',
+        `Cannot add dependency: '${validated.task_id}' depending on '${validated.depends_on_id}' creates a circular dependency: ${cycleCheck.cyclePathString}`,
+        {
+          taskId: validated.task_id,
+          dependsOnId: validated.depends_on_id,
+          cycle: cycleCheck.cycle,
+          cyclePathString: cycleCheck.cyclePathString,
+        },
+      );
+    }
 
     try {
       this.db
@@ -64,6 +80,21 @@ export class TaskDependencyRepository {
 
     const uniqueDeps = Array.from(new Set(dependsOnIds));
 
+    // Kiểm tra nếu việc cập nhật dependencies tạo chu trình
+    const cycleCheck = this.getCycleIfSetForTask(taskId, uniqueDeps);
+    if (cycleCheck.hasCycle && cycleCheck.cycle) {
+      throw new AppError(
+        'CIRCULAR_DEPENDENCY_ERROR',
+        `Cannot set dependencies for '${taskId}': creates circular dependency: ${cycleCheck.cyclePathString}`,
+        {
+          taskId,
+          dependencies: uniqueDeps,
+          cycle: cycleCheck.cycle,
+          cyclePathString: cycleCheck.cyclePathString,
+        },
+      );
+    }
+
     const syncTx = this.db.transaction(() => {
       this.db.prepare('DELETE FROM task_dependencies WHERE task_id = ?').run(taskId);
       const insertStmt = this.db.prepare(
@@ -79,6 +110,57 @@ export class TaskDependencyRepository {
     } catch (error: unknown) {
       this.handleSqliteError(error, taskId);
     }
+  }
+
+  buildGraph(): DependencyGraph {
+    const all = this.getAll();
+    const graph = new DependencyGraph();
+    for (const dep of all) {
+      graph.addDependency(dep.task_id, dep.depends_on_id);
+    }
+    return graph;
+  }
+
+  getCycleIfAdded(
+    taskId: string,
+    dependsOnId: string,
+  ): { hasCycle: boolean; cycle: string[] | null; cyclePathString: string | null } {
+    if (taskId === dependsOnId) {
+      return {
+        hasCycle: true,
+        cycle: [taskId, taskId],
+        cyclePathString: `${taskId} -> ${taskId}`,
+      };
+    }
+    const graph = this.buildGraph();
+    graph.addDependency(taskId, dependsOnId);
+    const result = graph.detectCycleDFS();
+    return {
+      hasCycle: result.hasCycle,
+      cycle: result.cycle,
+      cyclePathString: result.cyclePathString,
+    };
+  }
+
+  getCycleIfSetForTask(
+    taskId: string,
+    dependsOnIds: string[],
+  ): { hasCycle: boolean; cycle: string[] | null; cyclePathString: string | null } {
+    const all = this.getAll().filter((dep) => dep.task_id !== taskId);
+    const graph = new DependencyGraph();
+    for (const dep of all) {
+      graph.addDependency(dep.task_id, dep.depends_on_id);
+    }
+    graph.addNode(taskId);
+    for (const depId of dependsOnIds) {
+      graph.addDependency(taskId, depId);
+    }
+    const result = graph.detectCycleDFS();
+    return {
+      hasCycle: result.hasCycle,
+      cycle: result.cycle,
+      cyclePathString: result.cyclePathString,
+    };
   }
 
   getAll(): TaskDependency[] {

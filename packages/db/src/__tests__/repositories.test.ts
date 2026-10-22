@@ -334,6 +334,33 @@ describe('TSK-001: DB Repositories (Task, Feature, TaskDependency)', () => {
       expect(taskRepo.exists('CLEAN-1')).toBe(false);
       expect(taskRepo.exists('CLEAN-2')).toBe(false);
     });
+
+    it('createMany rejects batch with circular dependency and rolls back', () => {
+      expect(() =>
+        taskRepo.createMany([
+          { id: 'CYCLE-1', title: 'Cycle 1', dependencies: ['CYCLE-2'] },
+          { id: 'CYCLE-2', title: 'Cycle 2', dependencies: ['CYCLE-1'] },
+        ]),
+      ).toThrowError(expect.objectContaining({ code: 'CIRCULAR_DEPENDENCY_ERROR' }));
+
+      expect(taskRepo.exists('CYCLE-1')).toBe(false);
+      expect(taskRepo.exists('CYCLE-2')).toBe(false);
+    });
+
+    it('detectCycle and getExecutionOrder work properly on taskRepo', () => {
+      taskRepo.create({ id: 'DAG-1', title: 'Dag 1', priority: 10 });
+      taskRepo.create({ id: 'DAG-2', title: 'Dag 2', dependencies: ['DAG-1'], priority: 5 });
+      taskRepo.create({ id: 'DAG-3', title: 'Dag 3', dependencies: ['DAG-2'], priority: 1 });
+
+      const cycleResult = taskRepo.detectCycle();
+      expect(cycleResult.hasCycle).toBe(false);
+
+      const order = taskRepo.getExecutionOrder();
+      expect(order).toEqual(['DAG-1', 'DAG-2', 'DAG-3']);
+
+      const partialOrder = taskRepo.getExecutionOrder(['DAG-3', 'DAG-1']);
+      expect(partialOrder).toEqual(['DAG-1', 'DAG-3']);
+    });
   });
 
   describe('TaskDependencyRepository', () => {
@@ -362,6 +389,37 @@ describe('TSK-001: DB Repositories (Task, Feature, TaskDependency)', () => {
       expect(() => depRepo.add('T2', 'T1')).toThrowError(
         expect.objectContaining({ code: 'DEPENDENCY_ALREADY_EXISTS' }),
       );
+    });
+
+    it('Rejects dependency that creates a cycle with CIRCULAR_DEPENDENCY_ERROR', () => {
+      taskRepo.create({ id: 'NODE-A', title: 'Node A' });
+      taskRepo.create({ id: 'NODE-B', title: 'Node B' });
+      taskRepo.create({ id: 'NODE-C', title: 'Node C' });
+
+      depRepo.add('NODE-B', 'NODE-A'); // NODE-B depends on NODE-A
+      depRepo.add('NODE-C', 'NODE-B'); // NODE-C depends on NODE-B
+
+      // Thêm NODE-A phụ thuộc NODE-C sẽ tạo chu trình: NODE-A -> NODE-C -> NODE-B -> NODE-A
+      expect(() => depRepo.add('NODE-A', 'NODE-C')).toThrowError(
+        expect.objectContaining({ code: 'CIRCULAR_DEPENDENCY_ERROR' }),
+      );
+
+      // NODE-A không có dependency nào sau khi bị chặn
+      expect(depRepo.getByTaskId('NODE-A')).toEqual([]);
+    });
+
+    it('setForTask rejects dependencies that create a cycle', () => {
+      taskRepo.create({ id: 'S1', title: 'S1' });
+      taskRepo.create({ id: 'S2', title: 'S2' });
+
+      depRepo.add('S2', 'S1'); // S2 depends on S1
+
+      // Cố tình đặt S1 depends on S2
+      expect(() => depRepo.setForTask('S1', ['S2'])).toThrowError(
+        expect.objectContaining({ code: 'CIRCULAR_DEPENDENCY_ERROR' }),
+      );
+
+      expect(depRepo.getByTaskId('S1')).toEqual([]);
     });
   });
 });

@@ -3,6 +3,11 @@ import {
   type ValidationErrorItem,
   type ValidationOptions,
 } from './types.js';
+import {
+  DependencyGraph,
+  canonicalizeCycle,
+  formatCyclePath,
+} from '../graph/index.js';
 
 export const FOUNDATION_TASK_IDS = [
   'FND-001',
@@ -317,6 +322,121 @@ export function validateCrossEntityReferences(
 }
 
 /**
+ * Kiểm tra phát hiện chu trình phụ thuộc (circular dependency) trong tập task bằng DFS hoặc Kahn.
+ */
+export function validateDependencyCycles(
+  tasks: TaskRelationshipCandidate[],
+  options: ValidationOptions = {},
+): ValidationErrorItem[] {
+  const issues: ValidationErrorItem[] = [];
+  if (options.checkCycles === false || tasks.length === 0) {
+    return issues;
+  }
+
+  const sheet = 'Tasks';
+  const taskRowMap = new Map<string, number>();
+
+  for (let idx = 0; idx < tasks.length; idx++) {
+    const task = tasks[idx];
+    if (!task) continue;
+    const id = task.id ? task.id.trim() : '';
+    if (id && !taskRowMap.has(id)) {
+      taskRowMap.set(id, task.rowNumber ?? idx + 2);
+    }
+  }
+
+  const graph = new DependencyGraph();
+  for (const task of tasks) {
+    const id = task.id ? task.id.trim() : '';
+    if (!id) continue;
+    graph.addNode(id);
+    const deps = task.dependencies ?? [];
+    for (const dep of deps) {
+      const trimmedDep = dep.trim();
+      // Bỏ qua self-dependency vì taskValidator đã có rule riêng
+      if (trimmedDep && trimmedDep !== id) {
+        graph.addDependency(id, trimmedDep);
+      }
+    }
+  }
+
+  if (options.existingDependencies) {
+    for (const edge of options.existingDependencies) {
+      if (edge.taskId && edge.dependsOnId && edge.taskId !== edge.dependsOnId) {
+        graph.addDependency(edge.taskId, edge.dependsOnId);
+      }
+    }
+  }
+
+  const algorithm = options.cycleAlgorithm ?? 'dfs';
+  const allCycles = graph.findAllCyclesDFS();
+
+  if (allCycles.length > 0) {
+    const reportedSignatures = new Set<string>();
+    for (const cycle of allCycles) {
+      const pathString = formatCyclePath(cycle);
+      const signature = canonicalizeCycle(cycle).join('->');
+      if (reportedSignatures.has(signature)) continue;
+      reportedSignatures.add(signature);
+
+      const cycleUniqueNodes = Array.from(new Set(cycle));
+      let reportedForCycle = false;
+
+      for (const nodeId of cycleUniqueNodes) {
+        const row = taskRowMap.get(nodeId);
+        if (row !== undefined) {
+          issues.push({
+            sheet,
+            row,
+            column: 'dependencies',
+            code: VALIDATION_ERROR_CODES.CIRCULAR_DEPENDENCY,
+            message: `Phát hiện chu trình phụ thuộc (circular dependency): ${pathString}`,
+            value: cycle,
+            severity: 'error',
+          });
+          reportedForCycle = true;
+        }
+      }
+
+      if (!reportedForCycle && tasks.length > 0) {
+        const firstRow = tasks[0]?.rowNumber ?? 2;
+        issues.push({
+          sheet,
+          row: firstRow,
+          column: 'dependencies',
+          code: VALIDATION_ERROR_CODES.CIRCULAR_DEPENDENCY,
+          message: `Phát hiện chu trình phụ thuộc (circular dependency): ${pathString}`,
+          value: cycle,
+          severity: 'error',
+        });
+      }
+    }
+  } else if (algorithm === 'kahn') {
+    const kahnResult = graph.detectCycleKahn();
+    if (kahnResult.hasCycle && kahnResult.cycle) {
+      const pathString = kahnResult.cyclePathString ?? formatCyclePath(kahnResult.cycle);
+      const cycleUniqueNodes = Array.from(new Set(kahnResult.cycle));
+      for (const nodeId of cycleUniqueNodes) {
+        const row = taskRowMap.get(nodeId);
+        if (row !== undefined) {
+          issues.push({
+            sheet,
+            row,
+            column: 'dependencies',
+            code: VALIDATION_ERROR_CODES.CIRCULAR_DEPENDENCY,
+            message: `Phát hiện chu trình phụ thuộc (circular dependency): ${pathString}`,
+            value: kahnResult.cycle,
+            severity: 'error',
+          });
+        }
+      }
+    }
+  }
+
+  return issues;
+}
+
+/**
  * Kiểm tra toàn diện quan hệ giữa các thực thể (trùng lặp ID và dependency/feature tồn tại).
  */
 export function validateRelationships(
@@ -347,6 +467,11 @@ export function validateRelationships(
 
   // 4. Tham chiếu chéo giữa Task và Feature
   issues.push(...validateCrossEntityReferences(tasks, features, options));
+
+  // 5. Chu trình phụ thuộc (Cycle Detection)
+  if (tasks.length > 0) {
+    issues.push(...validateDependencyCycles(tasks, options));
+  }
 
   return issues;
 }

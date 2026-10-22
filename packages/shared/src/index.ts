@@ -5,3 +5,4 @@ export * from './git.js';
 export * from './models/index.js';
 export * from './parser/index.js';
 export * from './validator/index.js';
+export * from './graph/index.js';

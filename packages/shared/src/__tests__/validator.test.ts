@@ -847,5 +847,74 @@ describe('Validator Module (TSK-003)', () => {
 
       expect(() => assertValidWorkbook(invalidWorkbook)).toThrowError(WorkbookValidationError);
     });
+
+    it('Phát hiện chu trình phụ thuộc trong Workbook và từ chối với CIRCULAR_DEPENDENCY', () => {
+      const workbookWithCycle: ParsedWorkbookResult = {
+        tasks: [
+          {
+            id: 'TASK-A',
+            feature_id: null,
+            title: 'Task A',
+            description: null,
+            phase: null,
+            worker_type: 'agy',
+            repository: '.',
+            acceptance_criteria: [],
+            test_commands: [],
+            priority: 0,
+            max_attempts: 3,
+            timeout_minutes: 30,
+            dependencies: ['TASK-B'],
+            status: 'TODO',
+            rowNumber: 2,
+            raw: {},
+          },
+          {
+            id: 'TASK-B',
+            feature_id: null,
+            title: 'Task B',
+            description: null,
+            phase: null,
+            worker_type: 'agy',
+            repository: '.',
+            acceptance_criteria: [],
+            test_commands: [],
+            priority: 0,
+            max_attempts: 3,
+            timeout_minutes: 30,
+            dependencies: ['TASK-A'],
+            status: 'TODO',
+            rowNumber: 3,
+            raw: {},
+          },
+        ],
+        features: [],
+        config: {
+          repository: '.',
+          agy_bin: 'agy',
+          agy_args: '-p',
+          verify_commands: [],
+          max_attempts: 3,
+          timeout_minutes: 30,
+          max_concurrency: 1,
+          settings: {},
+          raw: {},
+        },
+        sourceType: 'excel',
+      };
+
+      const report = validateWorkbook(workbookWithCycle);
+      expect(report.valid).toBe(false);
+
+      const cycleErrors = report.errors.filter(
+        (e) => e.code === VALIDATION_ERROR_CODES.CIRCULAR_DEPENDENCY,
+      );
+      expect(cycleErrors.length).toBeGreaterThan(0);
+      expect(cycleErrors[0]?.sheet).toBe('Tasks');
+      expect(cycleErrors[0]?.column).toBe('dependencies');
+      expect(cycleErrors[0]?.message).toContain('TASK-A -> TASK-B -> TASK-A');
+
+      expect(() => assertValidWorkbook(workbookWithCycle)).toThrowError(WorkbookValidationError);
+    });
   });
 });

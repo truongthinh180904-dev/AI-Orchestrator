@@ -173,4 +173,33 @@
     - Kiểm tra toàn bộ dependency (nội bộ batch + DB) (`FOREIGN_KEY_VIOLATION`).
     - Nếu xảy ra bất kỳ lỗi nào, toàn bộ giao dịch bị rollback và không có task nào được ghi vào cơ sở dữ liệu ("Từ chối dữ liệu sai").
 
+## TSK-005: Phát hiện cycle (DFS/Kahn), trả về đường đi chu trình
+- **Module đồ thị phụ thuộc (`packages/shared/src/graph/`)**:
+  - `DependencyGraph`: Lớp biểu diễn đồ thị có hướng (Directed Graph) chuyên biệt cho quan hệ phụ thuộc giữa các task. Lưu trữ cả chiều thuận `dependencies` (task u phụ thuộc vào v) và chiều nghịch `dependents` (task v là điều kiện tiên quyết của u).
+  - **Thuật toán DFS 3 trạng thái màu (White/Gray/Black)**:
+    - Trạng thái `0` (UNVISITED), `1` (VISITING / trong call stack), `2` (VISITED).
+    - Khi duyệt cạnh `u -> v` mà `v` đang ở trạng thái `1` (VISITING), phát hiện cạnh ngược (back-edge).
+    - Trích xuất trực tiếp đường đi chu trình từ mảng call stack: `cycle = currentPath.slice(startIndex).concat([v])` (ví dụ: `['A', 'B', 'C', 'A']`).
+    - Hỗ trợ `findAllCyclesDFS()`: thu thập và chuẩn hóa tất cả các chu trình đơn (simple cycles) riêng biệt trong đồ thị.
+  - **Thuật toán Kahn (Topological Sort dựa trên In-Degree)**:
+    - Trong đồ thị thực thi, task u chỉ có thể chạy khi tất cả các task v mà u phụ thuộc vào đã chạy xong. In-degree của u tương ứng với số lượng dependencies chưa được hoàn thành của u.
+    - Hàng đợi khởi tạo với các task có `inDegree === 0` (sẵn sàng chạy ngay). Sắp xếp theo `priority` (giảm dần) và `id` (tăng dần) để thứ tự chạy hoàn toàn xác định.
+    - Nếu tổng số node xếp được sau khi hàng đợi rỗng < tổng số node, đồ thị tồn tại chu trình.
+    - Thuật toán xác định tập node có `inDegree > 0` và truy vết theo các cạnh dependency còn lại để tái tạo đường đi chu trình khép kín `[v, ..., v]`.
+  - **Hàm tiện ích**:
+    - `formatCyclePath(cycle)`: Chuyển đổi mảng chu trình thành chuỗi biểu diễn trực quan: `'A -> B -> C -> A'`.
+    - `canonicalizeCycle(cycle)`: Chuẩn hóa chu trình về node bắt đầu có mã nhỏ nhất theo bảng chữ cái.
+    - `detectCycleDFS`, `detectCycleKahn`, `detectCycle`, `findCycle`, `topologicalSort`.
+- **Tích hợp tầng Validation (`packages/shared/src/validator/`)**:
+  - Bổ sung mã lỗi `CIRCULAR_DEPENDENCY` và alias `CYCLE_DETECTED` trong `VALIDATION_ERROR_CODES`.
+  - `validateDependencyCycles`: Xây dựng `DependencyGraph` từ danh sách task, kiểm tra chu trình và gắn lỗi tọa độ `(sheet: 'Tasks', row: X, column: 'dependencies')` cho từng task tham gia chu trình kèm chuỗi đường đi trực quan.
+  - Tự động tích hợp vào `validateRelationships`, áp dụng cho cả `validateWorkbook` và `validateRawWorkbook`.
+  - `assertValidWorkbook` ném `WorkbookValidationError` khi workbook chứa chu trình phụ thuộc.
+- **Tích hợp tầng Database Repositories (`packages/db`)**:
+  - `TaskDependencyRepository.add()` và `setForTask()`: Kiểm tra trước xem thao tác thêm/cập nhật dependency có tạo chu trình với các task hiện có trong DB hay không. Nếu có, ném `AppError('CIRCULAR_DEPENDENCY_ERROR')` kèm thông tin chu trình và từ chối ghi dữ liệu.
+  - `TaskRepository.createMany()`: Thực hiện kiểm tra chu trình (bằng batch graph kết hợp các dependency trong DB) trước khi ghi vào cơ sở dữ liệu. Nếu phát hiện chu trình, ném `AppError('CIRCULAR_DEPENDENCY_ERROR')` và rollback toàn bộ transaction.
+  - `TaskRepository.detectCycle()`: Kiểm tra trạng thái chu trình trên toàn bộ cơ sở dữ liệu hiện hành.
+  - `TaskRepository.getExecutionOrder()`: Trả về danh sách mã task theo đúng thứ tự thực thi tô-pô (topological sort), ném `AppError('CIRCULAR_DEPENDENCY_ERROR')` nếu DB bị vướng chu trình.
+
+
 

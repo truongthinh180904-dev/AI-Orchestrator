@@ -24,6 +24,8 @@ export const VALIDATION_ERROR_CODES = {
   NON_EXISTENT_DEPENDENCY: 'NON_EXISTENT_DEPENDENCY',
   MISSING_FEATURE: 'MISSING_FEATURE',
   MISSING_REQUIRED_TASK: 'MISSING_REQUIRED_TASK',
+  CIRCULAR_DEPENDENCY: 'CIRCULAR_DEPENDENCY',
+  CYCLE_DETECTED: 'CYCLE_DETECTED',
 } as const;
 
 export type ValidationErrorCode = (typeof VALIDATION_ERROR_CODES)[keyof typeof VALIDATION_ERROR_CODES];
@@ -58,6 +60,9 @@ export interface ValidationOptions {
   existingTaskIds?: Iterable<string>;
   existingFeatureIds?: Iterable<string>;
   checkExistingDuplicates?: boolean;
+  checkCycles?: boolean;
+  cycleAlgorithm?: 'dfs' | 'kahn';
+  existingDependencies?: Iterable<{ taskId: string; dependsOnId: string }>;
 }
 
 export const ValidationErrorItemSchema = z.object({
