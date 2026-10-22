@@ -4,11 +4,25 @@ import { AppError } from '../errors.js';
 import { type ParsedWorkbookResult } from './types.js';
 import { parseExcelWorkbook } from './excel.js';
 import { parseCsvFiles, parseCsvDirectory } from './csv.js';
+import { validateWorkbook, WorkbookValidationError } from '../validator/workbookValidator.js';
+import type { ValidationOptions, ValidationReport } from '../validator/types.js';
 
 export * from './types.js';
 export * from './mappers.js';
 export * from './excel.js';
 export * from './csv.js';
+
+export async function parseAndValidateWorkbook(
+  input: string | Buffer | Record<string, string>,
+  options: { filename?: string; validationOptions?: ValidationOptions; assertValid?: boolean } = {},
+): Promise<{ parsed: ParsedWorkbookResult; report: ValidationReport }> {
+  const parsed = await parseImportFile(input, { filename: options.filename });
+  const report = validateWorkbook(parsed, options.validationOptions);
+  if (options.assertValid && !report.valid) {
+    throw new WorkbookValidationError(report);
+  }
+  return { parsed, report };
+}
 
 export async function parseImportFile(
   input: string | Buffer | Record<string, string>,

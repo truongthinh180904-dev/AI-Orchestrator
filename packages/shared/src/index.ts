@@ -4,3 +4,4 @@ export * from './env.js';
 export * from './git.js';
 export * from './models/index.js';
 export * from './parser/index.js';
+export * from './validator/index.js';

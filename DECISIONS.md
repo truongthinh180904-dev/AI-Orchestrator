@@ -121,3 +121,26 @@
   - File không tồn tại throw `AppError('FILE_NOT_FOUND')`, thư mục không tồn tại throw `AppError('DIRECTORY_NOT_FOUND')`, định dạng không hỗ trợ throw `AppError('UNSUPPORTED_FILE_TYPE')`, file hỏng/rỗng throw `AppError('INVALID_FILE_FORMAT')`/`AppError('EMPTY_FILE')`.
 - **Fixtures mẫu**:
   - Tạo `fixtures/sample-tasks.xlsx` và `fixtures/sample-csv/` (`tasks.csv`, `features.csv`, `config.csv`) làm file mẫu phục vụ nghiệm thu và kiểm thử tự động.
+
+## TSK-003: Validate dữ liệu, báo lỗi theo (sheet, dòng, cột)
+- **Vị trí Module**:
+  - `packages/shared/src/validator/`: Xây dựng module validation toàn diện gồm `types.ts`, `formatters.ts`, `taskValidator.ts`, `featureValidator.ts`, `configValidator.ts`, `workbookValidator.ts` và `index.ts`. Re-export qua `@ai-orchestrator/shared`.
+- **Định dạng báo lỗi theo (sheet, dòng, cột)**:
+  - Cấu trúc `ValidationErrorItem`:
+    - `sheet`: Tên sheet ('Tasks', 'Features', 'Config').
+    - `row`: Số dòng 1-based trong sheet hoặc file dữ liệu.
+    - `column`: Tên cột / thuộc tính (e.g. `'id'`, `'title'`, `'status'`, `'priority'`, `'max_attempts'`, `'timeout_minutes'`, `'dependencies'`, v.v.).
+    - `code`: Mã lỗi chuẩn (`REQUIRED_FIELD`, `INVALID_IDENTIFIER_FORMAT`, `INVALID_STATUS`, `INVALID_INTEGER`, `VALUE_OUT_OF_RANGE`, `STRING_TOO_LONG`, `SELF_DEPENDENCY`, `EMPTY_LIST_ITEM`, `INVALID_WORKER_TYPE`, `INVALID_REPOSITORY`, `INVALID_EXECUTABLE`, `MISSING_REQUIRED_SHEET`, `EMPTY_SHEET`, `MISSING_REQUIRED_COLUMN`, `UNKNOWN_COLUMN`).
+    - `message`: Thông báo chi tiết bằng tiếng Việt rõ ràng, dễ hiểu.
+    - `value`: Giá trị lỗi (nếu có).
+    - `severity`: `'error'` | `'warning'`.
+  - Format hiển thị chuẩn: `[Sheet: dòng X, cột 'Y'] (CODE) Message [Giá trị: ...]`.
+- **Cơ chế kiểm soát đa tầng (Raw + Parsed)**:
+  - Validator hỗ trợ xác thực cả các dòng dữ liệu thô (`Record<string, unknown>` / `RawRow`) lẫn các entity đã được parse (`ParsedTaskRow`, `ParsedFeatureRow`, `ParsedConfig`).
+  - Hỗ trợ đầy đủ các alias tiêu đề cột tiếng Anh và tiếng Việt (`Mã task`, `Tiêu đề`, `Độ ưu tiên`, `Trạng thái`, v.v.).
+  - Bắt toàn bộ lỗi và cảnh báo (không fail-fast ở lỗi đầu tiên), trả về `ValidationReport` tổng thể gồm danh sách lỗi, cảnh báo và chuỗi tóm tắt `summary`.
+- **Xử lý ngoại lệ**:
+  - Cung cấp `WorkbookValidationError` kế thừa từ `AppError` (`code: 'VALIDATION_FAILED'`), chứa report chi tiết trong `context`.
+  - Cung cấp `assertValidWorkbook` tự động ném `WorkbookValidationError` khi dữ liệu không hợp lệ.
+  - Cung cấp `parseAndValidateWorkbook` kết hợp parser (TSK-002) và validator (TSK-003) làm điểm vào thuận tiện cho API import (TSK-006).
+
