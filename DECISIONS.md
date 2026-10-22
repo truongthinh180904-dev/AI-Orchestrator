@@ -271,3 +271,29 @@
   - Hỗ trợ cờ `detached` cho phép kill process group (`process.kill(-pid, signal)`) khi tiến trình con tạo sub-processes.
 - **Dependencies**: Không thêm dependency mới (sử dụng `node:child_process`, `node:events`, `node:fs`, `node:path`, `zod` và `@ai-orchestrator/shared`).
 
+## AGY-002: NdjsonParser (buffer theo \n, parse từng dòng, JSON lỗi → event parse_error không crash)
+- **Vị trí Module**:
+  - `packages/shared/src/models/ndjson.ts`: Định nghĩa các Zod schema và TypeScript types cho các sự kiện NDJSON (`NdjsonParsedEventSchema`, `NdjsonParseErrorEventSchema`, `NdjsonStreamEventSchema`, `NdjsonParserOptionsSchema`, `DEFAULT_MAX_LINE_LENGTH`). Re-export qua `packages/shared/src/models/index.ts` và `@ai-orchestrator/shared`.
+  - `apps/orchestrator/src/adapters/ndjson-parser.ts`: Lớp `NdjsonParser` kế thừa `node:stream.Transform` và cung cấp giao diện xử lý luồng dữ liệu / sự kiện. Re-export qua `apps/orchestrator/src/adapters/index.ts` và `@ai-orchestrator/orchestrator`.
+- **Cơ chế Buffer và UTF-8 Streaming**:
+  - Sử dụng `node:string_decoder.StringDecoder('utf8')` giải mã từng chunk để đảm bảo các ký tự UTF-8 đa byte (như tiếng Việt có dấu, emoji 4-byte 🚀) khi bị cắt ngang giữa các chunk không bao giờ bị biến thành ký tự rác `\uFFFD`.
+  - Phân tách theo ký tự xuống dòng `\n`, tự động loại bỏ ký tự `\r` (Windows CRLF) ở cuối dòng nếu có.
+  - Phần dữ liệu chưa kết thúc bằng `\n` được giữ lại trong bộ đệm nội bộ (`_buffer`) và tiếp tục ghép với chunk kế tiếp; khi stream kết thúc (`flush()` hoặc `_flush()`), phần dữ liệu còn lại trong bộ đệm được parse trọn vẹn.
+- **Quy tắc bỏ dòng rỗng & Khoảng trắng**:
+  - Các dòng rỗng hoàn toàn (`\n`, `\r\n`) được bỏ qua, không phát sinh sự kiện và không tính vào bộ đếm `seq`.
+  - Tùy chọn `ignoreWhitespaceOnly: true` (mặc định) cho phép bỏ qua các dòng chỉ chứa khoảng trắng hoặc tab (`   \n`, `\t\t\n`).
+- **Xử lý lỗi JSON an toàn (Không crash)**:
+  - Khi `JSON.parse` thất bại hoặc gặp dữ liệu không phải JSON, parser phát sự kiện `'parse_error'` chứa: `seq` (tăng dần), `type: 'parse_error'`, `raw` (dòng gốc), `error` (đối tượng Error), `errorMessage` (chuỗi mô tả lỗi), `timestamp` (ISO-8601).
+  - Tên sự kiện được đặt rõ ràng là `parse_error` thay vì `error` của EventEmitter, nhờ đó Node.js tuyệt đối không throw Uncaught Exception ngay cả khi người gọi không gắn listener cho sự kiện này.
+  - Parser tự động phục hồi ngay lập tức, tiếp tục tiếp nhận và parse các dòng hợp lệ tiếp theo mà không làm gián đoạn luồng dữ liệu.
+- **Bảo vệ chống tràn bộ nhớ (Memory Exhaustion Protection)**:
+  - Hỗ trợ tham số cấu hình `maxLineLength` (mặc định 1MB = `1024 * 1024`).
+  - Nếu một dòng hoặc bộ đệm không có ký tự newline vượt quá `maxLineLength`, parser sẽ phát sự kiện `parse_error` và xóa bộ đệm để ngăn chặn tấn công DoS hoặc tràn RAM khi tiến trình con in output rác vô hạn.
+- **Bộ đếm Sequence (`seq`) đơn điệu tăng dần**:
+  - Mỗi sự kiện hợp lệ (`event`) và mỗi sự kiện lỗi (`parse_error`) đều được gán `seq` duy nhất tăng dần liên tục (bắt đầu từ 1 hoặc `initialSeq`), sẵn sàng phục vụ việc ghi nhận vào bảng SQLite `events` ở task AGY-003.
+- **Khả năng tương thích Stream & Piping**:
+  - `NdjsonParser` mở rộng `Transform` stream với `readableObjectMode: true`, cho phép pipe trực tiếp từ `handle.stdout` của `ProcessAdapter`.
+  - Khởi tạo mặc định với `this.resume()` để chế độ stream luôn flowing, ngăn chặn tình trạng tắc nghẽn bộ đệm highWaterMark khi người dùng chỉ lắng nghe sự kiện qua EventEmitter (`parser.on('event', ...)`).
+  - Cung cấp phương thức đồng bộ `NdjsonParser.parse()` và phương thức bất đồng bộ `NdjsonParser.parseStream()` phục vụ kiểm thử và xử lý nhanh NDJSON.
+- **Dependencies**: Không thêm dependency bên ngoài mới (sử dụng thư viện chuẩn `node:string_decoder`, `node:stream`, `zod` và `@ai-orchestrator/shared`).
+

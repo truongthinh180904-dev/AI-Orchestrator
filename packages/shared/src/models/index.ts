@@ -3,3 +3,4 @@ export * from './feature.js';
 export * from './task.js';
 export * from './import.js';
 export * from './agent-command.js';
+export * from './ndjson.js';
