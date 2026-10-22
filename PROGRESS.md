@@ -20,7 +20,7 @@ Trạng thái: `TODO` | `IN_PROGRESS` | `DONE` | `FAILED` | `BLOCKED`
 | AGY-001 | DONE | 1 | b64c436 | Hoàn thành lúc 2026-10-23 03:27 +07:00 |
 | AGY-002 | DONE | 1 | 488b041 | Hoàn thành lúc 2026-10-23 03:41 +07:00 |
 | AGY-003 | DONE | 1 | 34cbea7 | Hoàn thành lúc 2026-10-23 04:00 +07:00 |
-| AGY-004 | TODO | 0 | | |
+| AGY-004 | DONE | 1 | c98f7c4 | Hoàn thành lúc 2026-10-23 04:16 +07:00 |
 | AGY-005 | TODO | 0 | | |
 | AGY-006 | TODO | 0 | | |
 | AGY-007 | TODO | 0 | | |
