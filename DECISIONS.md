@@ -436,3 +436,29 @@
   - Nếu lần chạy đã kết thúc từ trước: trả về an toàn `{ data: { stopped: false, run } }` mà không gây lỗi hay crash server.
 - **Dependencies**: Không thêm dependency ngoài mới (sử dụng Fastify và Node.js native streams có sẵn).
 
+
+## AGY-008: Test CLI giả: lỗi, timeout, crash, output rác (script mock) — Mỗi tình huống có test + bằng chứng
+- **Mở rộng Mock AGY CLI (`fixtures/mock-agy-cli.cjs`)**:
+  - Tình huống Lỗi (`error`, `error_exit_only`, `error_exit_2`, `error_result_zero_exit`):
+    - `error`: Ghi stderr `Fatal: compile error`, phát event `result` với `{ status: 'ERROR' }`, thoát mã 1.
+    - `error_exit_only` / `error_exit_2`: Thoát với mã lỗi khác 0 mà không có event `result`.
+    - `error_result_zero_exit`: Thoát với mã exit 0 nhưng payload event `result` thông báo lỗi nghiệp vụ (`status: 'ERROR'`), kiểm tra hệ thống phân giải chính xác thành `ERROR`.
+  - Tình huống Timeout (`hang`, `timeout`, `stubborn`, `delay`):
+    - `timeout` / `hang`: Chạy vô hạn; thoát an toàn khi nhận `SIGTERM` từ timeout watchdog.
+    - `stubborn`: Chạy vô hạn; chủ động bỏ qua tín hiệu `SIGTERM`, buộc `ExecutionManager` phải nâng cấp lên `SIGKILL` sau grace period (150ms).
+    - `delay`: Trì hoãn thực thi một khoảng thời gian trước khi hoàn thành, phục vụ kiểm thử timeout theo cấu hình.
+  - Tình huống Crash đột ngột (`crash`, `crash_segfault`, `crash_uncaught`, `crash_signal`):
+    - `crash_segfault`: Thoát với exit code 139 (tương đương SIGSEGV segmentation fault) kèm thông báo stderr; hệ thống ghi nhận exit code 139, lưu stderr và phân giải `status: 'ERROR'`.
+    - `crash_uncaught`: Phát sinh ngoại lệ chưa bắt runtime trong tiến trình Node con, gây thoát đột ngột với mã 1 và stack trace ghi nhận vào DB `events`.
+    - `crash_signal`: Tiến trình con tự kết liễu bằng `SIGKILL`, hệ thống nhận diện đúng signal và thu hồi tài nguyên sạch sẽ.
+  - Tình huống Output rác / Sai định dạng (`invalid_output`, `no_result`, `invalid_result_schema`, `invalid_result_non_object`, `garbage_stream`, `garbage_stream_no_result`, `garbage_stream_error`, `empty`, `huge_line`):
+    - `no_result` / `invalid_output`: Chỉ xuất stdout dạng plain text mà không có event `result`, thoát 0; phân giải thành `INVALID_OUTPUT`.
+    - `invalid_result_schema`: Xuất event `result` có payload không thỏa mãn Zod schema `AgentResultPayloadSchema` (thiếu status/success hoặc sai định dạng); phân giải thành `INVALID_OUTPUT`.
+    - `garbage_stream`: Xuất dòng JSON hỏng (`{"corrupted_json: true`), chuỗi byte nhị phân lạ xen kẽ các event hợp lệ; `NdjsonParser` thu thập các event `parse_error` vào bảng `events` mà không làm crash tiến trình hay server, run hoàn thành `SUCCESS`.
+    - `garbage_stream_no_result` / `garbage_stream_error`: Dòng rác kết hợp không có result hoặc kết thúc bằng mã lỗi 1; phân giải lần lượt thành `INVALID_OUTPUT` và `ERROR`.
+    - `huge_line`: Xuất dòng NDJSON kích thước lớn (200KB+) kiểm tra buffer NDJSON; bổ sung cơ chế `finish(code)` đảm bảo stream stdout flush trọn vẹn trước khi tiến trình thoát.
+    - `empty`: Thoát ngay lập tức không xuất dòng nào; phân giải an toàn thành `INVALID_OUTPUT`.
+- **Cải tiến an toàn trong Execution Manager & Execution Stream**:
+  - `ExecutionManager`: Bổ sung kiểm tra `if (this.listenerCount('error') > 0)` khi chuyển tiếp sự kiện `'error'` từ `ProcessHandle`, ngăn chặn Node.js EventEmitter ném ngoại lệ `ERR_UNHANDLED_ERROR` khi không có listener cấp cao.
+  - `ExecutionStreamRecorder`: Tự động cập nhật `status: 'ERROR'` vào bảng `runs` khi tiến trình con gặp lỗi khởi tạo (`ENOENT` / process error), đồng thời bọc bảo vệ các thao tác database trong khối teardown tránh lỗi khi kết nối database đã đóng.
+- **Dependencies**: Không thêm bất kỳ dependency bên ngoài nào mới.

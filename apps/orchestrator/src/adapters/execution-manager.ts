@@ -212,7 +212,9 @@ export class ExecutionManager extends EventEmitter {
 
     handle.on('error', (err) => {
       clearTimers();
-      this.emit('error', { runId, error: err });
+      if (this.listenerCount('error') > 0) {
+        this.emit('error', { runId, error: err });
+      }
     });
 
     const managedExecution: ManagedExecution = {

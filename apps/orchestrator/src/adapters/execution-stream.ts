@@ -215,6 +215,15 @@ export class ExecutionStreamRecorder extends EventEmitter {
         message: err.message,
         name: err.name,
       });
+      if (this._runRepo) {
+        try {
+          this._runRepo.updateStatus(this.runId, 'ERROR', {
+            finished_at: new Date().toISOString(),
+          });
+        } catch {
+          // Suppress error updating run status
+        }
+      }
       if (!this._completed) {
         this._completed = true;
         this._rejectCompletion(err);
@@ -226,14 +235,24 @@ export class ExecutionStreamRecorder extends EventEmitter {
       this._flushStreams();
 
       if (this._recordLifecycle) {
-        this.recordEvent(STANDARD_EVENT_TYPES.PROCESS_EXIT, {
-          exitCode,
-          signal,
-          durationMs,
-        });
+        try {
+          this.recordEvent(STANDARD_EVENT_TYPES.PROCESS_EXIT, {
+            exitCode,
+            signal,
+            durationMs,
+          });
+        } catch {
+          // Suppress error if database or recorder is already closed
+        }
       }
 
-      const allEvents = this.getEvents();
+      let allEvents: EventRecord[];
+      try {
+        allEvents = this.getEvents();
+      } catch {
+        allEvents = [];
+      }
+
       const resolution = resolveRunStatus({
         exitCode,
         signal,
@@ -254,17 +273,19 @@ export class ExecutionStreamRecorder extends EventEmitter {
         }
       }
 
-      this._completed = true;
-      this.emit('finish', allEvents, resolution);
+      if (!this._completed) {
+        this._completed = true;
+        this.emit('finish', allEvents, resolution);
 
-      this._resolveCompletion({
-        exitCode,
-        signal,
-        durationMs,
-        events: allEvents,
-        status: resolution.status,
-        resolution,
-      });
+        this._resolveCompletion({
+          exitCode,
+          signal,
+          durationMs,
+          events: allEvents,
+          status: resolution.status,
+          resolution,
+        });
+      }
     });
   }
 
