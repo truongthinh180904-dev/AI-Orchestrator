@@ -6,7 +6,7 @@ Trạng thái: `TODO` | `IN_PROGRESS` | `DONE` | `FAILED` | `BLOCKED`
 |---|---|---|---|---|
 | FND-001 | DONE | 1 | c7473e1 | Hoàn thành lúc 2026-10-22 23:40 +07:00 |
 | FND-002 | DONE | 1 | c7ab9b0 | Hoàn thành lúc 2026-10-23 00:17 +07:00 |
-| FND-003 | TODO | 0 | | |
+| FND-003 | DONE | 1 | 21e08c0 | Hoàn thành lúc 2026-10-23 00:30 +07:00 |
 | FND-004 | TODO | 0 | | |
 | FND-005 | TODO | 0 | | |
 | FND-006 | TODO | 0 | | |
