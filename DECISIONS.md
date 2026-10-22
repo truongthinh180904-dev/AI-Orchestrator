@@ -25,3 +25,20 @@
   - Xử lý lỗi: Bất kỳ lỗi nào trong quá trình chạy file migration đều dẫn đến rollback transaction và throw `AppError` với mã `MIGRATION_EXECUTION_FAILED`.
 - **Migration 001**: Khởi tạo 6 bảng nghiệp vụ cốt lõi theo `ROADMAP.md` và `SKILL-sqlite.md`: `features`, `tasks`, `task_dependencies`, `runs`, `events`, `reports` kèm các chỉ mục (indexes) tối ưu hóa truy vấn.
 - **Error Handling**: Cung cấp lớp `AppError` chuẩn (`code`, `message`, `context`).
+
+## FND-004: Logger JSON & AppError chuẩn hóa trong `@ai-orchestrator/shared`
+- **Vị trí**:
+  - `AppError` và `createLogger`/`logger` được định nghĩa trong `packages/shared` (`@ai-orchestrator/shared`), làm nguồn dùng chung duy nhất cho toàn bộ hệ thống (orchestrator, dashboard, db).
+  - `packages/db` phụ thuộc `@ai-orchestrator/shared: "workspace:*"` và re-export `AppError` nhằm đảm bảo tính đồng nhất kiểu dữ liệu lỗi.
+- **Cấu trúc Log JSON**:
+  - Mỗi bản ghi là 1 dòng JSON (NDJSON) kết thúc bằng `\n`.
+  - Bắt buộc chứa 4 trường: `timestamp` (ISO-8601 UTC), `level` (`debug` | `info` | `warn` | `error`), `message` (string), `context` (Record<string, unknown>).
+  - Tự động cung cấp `context: {}` khi không có context truyền vào để luôn đủ trường theo nghiệm thu.
+- **Cơ chế bảo mật (Không log secrets)**:
+  - Tự động lọc và che giấu (`[REDACTED]`) các key nhạy cảm: `password`, `token`, `secret`, `apikey`, `api_key`, `authorization`, `auth`, `cookie`, `credential`, `private_key`, `access_token`, `refresh_token` (không phân biệt hoa thường).
+  - Sử dụng biểu thức chính quy che Bearer token (`Bearer [REDACTED]`) và các dạng API token phổ biến (`sk-*`, `ghp_*`, v.v.) trong message, context string và stack trace.
+  - Sử dụng `WeakSet` chống crash đệ quy khi gặp cấu trúc dữ liệu vòng lặp (`[CIRCULAR]`).
+- **Khả năng mở rộng & Test**:
+  - Hỗ trợ child logger qua `logger.child(childContext)` tự động gộp ngữ cảnh cha - con.
+  - Hỗ trợ `destination` tùy biến (mặc định ghi `process.stdout.write`), cho phép inject transport hoặc mock trong unit tests mà không làm ô nhiễm stdout.
+  - Xử lý đối số `errorOrContext` trong `logger.error`: nhận diện `Error`/`AppError` và bóc tách `name`, `code`, `message`, `stack`, `context` an toàn.
