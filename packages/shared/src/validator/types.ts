@@ -18,6 +18,12 @@ export const VALIDATION_ERROR_CODES = {
   MISSING_REQUIRED_COLUMN: 'MISSING_REQUIRED_COLUMN',
   UNKNOWN_COLUMN: 'UNKNOWN_COLUMN',
   INVALID_FORMAT: 'INVALID_FORMAT',
+  DUPLICATE_TASK_ID: 'DUPLICATE_TASK_ID',
+  DUPLICATE_FEATURE_ID: 'DUPLICATE_FEATURE_ID',
+  MISSING_DEPENDENCY: 'MISSING_DEPENDENCY',
+  NON_EXISTENT_DEPENDENCY: 'NON_EXISTENT_DEPENDENCY',
+  MISSING_FEATURE: 'MISSING_FEATURE',
+  MISSING_REQUIRED_TASK: 'MISSING_REQUIRED_TASK',
 } as const;
 
 export type ValidationErrorCode = (typeof VALIDATION_ERROR_CODES)[keyof typeof VALIDATION_ERROR_CODES];
@@ -49,6 +55,9 @@ export interface ValidationOptions {
   maxErrors?: number;
   requireFeaturesSheet?: boolean;
   requireConfigSheet?: boolean;
+  existingTaskIds?: Iterable<string>;
+  existingFeatureIds?: Iterable<string>;
+  checkExistingDuplicates?: boolean;
 }
 
 export const ValidationErrorItemSchema = z.object({

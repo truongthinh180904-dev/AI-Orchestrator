@@ -74,6 +74,26 @@ export class TaskRepository {
       }
     }
 
+    if (this.exists(validated.id)) {
+      throw new AppError('TASK_ALREADY_EXISTS', `Task with id '${validated.id}' already exists`, {
+        taskId: validated.id,
+      });
+    }
+
+    if (deps.length > 0) {
+      const missing = this.findMissingDependencies(deps);
+      if (missing.length > 0) {
+        throw new AppError(
+          'FOREIGN_KEY_VIOLATION',
+          `Cannot create task '${validated.id}': referenced dependency '${missing.join(', ')}' does not exist`,
+          {
+            taskId: validated.id,
+            missingDependencies: missing,
+          },
+        );
+      }
+    }
+
     const insertTaskTx = this.db.transaction(() => {
       this.db
         .prepare(`
@@ -244,6 +264,20 @@ export class TaskRepository {
 
     params.push(id);
 
+    if (validated.dependencies !== undefined && validated.dependencies.length > 0) {
+      const missing = this.findMissingDependencies(validated.dependencies);
+      if (missing.length > 0) {
+        throw new AppError(
+          'FOREIGN_KEY_VIOLATION',
+          `Cannot update task '${id}': referenced dependency '${missing.join(', ')}' does not exist`,
+          {
+            taskId: id,
+            missingDependencies: missing,
+          },
+        );
+      }
+    }
+
     const updateTx = this.db.transaction(() => {
       if (updates.length > 1) {
         // More than just updated_at
@@ -307,10 +341,28 @@ export class TaskRepository {
     return row.count;
   }
 
+  findMissingDependencies(dependencies: string[]): string[] {
+    if (dependencies.length === 0) return [];
+    const uniqueDeps = Array.from(new Set(dependencies));
+    const placeholders = uniqueDeps.map(() => '?').join(',');
+    const existingRows = this.db
+      .prepare(`SELECT id FROM tasks WHERE id IN (${placeholders})`)
+      .all(...uniqueDeps) as Array<{ id: string }>;
+    const existingSet = new Set(existingRows.map((r) => r.id));
+    return uniqueDeps.filter((dep) => !existingSet.has(dep));
+  }
+
   addDependency(taskId: string, dependsOnId: string): void {
     const existing = this.findById(taskId);
     if (!existing) {
       throw new AppError('TASK_NOT_FOUND', `Task with id '${taskId}' not found`, { taskId });
+    }
+    if (!this.exists(dependsOnId)) {
+      throw new AppError(
+        'FOREIGN_KEY_VIOLATION',
+        `Referenced dependency task '${dependsOnId}' does not exist`,
+        { taskId, dependsOnId },
+      );
     }
     this.depRepo.add(taskId, dependsOnId);
   }
@@ -325,6 +377,131 @@ export class TaskRepository {
 
   getDependents(taskId: string): string[] {
     return this.depRepo.getDependentsOf(taskId);
+  }
+
+  /**
+   * Tạo nhiều task đồng thời trong 1 transaction an toàn (atomic bulk insert).
+   * Phát hiện trùng lặp task_id trong batch và trong DB, phát hiện dependency không tồn tại.
+   * Nếu có bất kỳ lỗi nào, toàn bộ giao dịch bị hủy và không có task nào được ghi vào DB.
+   */
+  createMany(tasks: CreateTaskInput[]): TaskWithDependencies[] {
+    if (tasks.length === 0) return [];
+
+    // 1. Validate Zod và kiểm tra tự phụ thuộc
+    const validatedTasks = tasks.map((t) => CreateTaskInputSchema.parse(t));
+
+    // 2. Kiểm tra trùng lặp ID trong batch
+    const seenBatch = new Set<string>();
+    for (const task of validatedTasks) {
+      if (seenBatch.has(task.id)) {
+        throw new AppError('DUPLICATE_TASK_ID', `Duplicate task id '${task.id}' found in batch`, {
+          taskId: task.id,
+        });
+      }
+      seenBatch.add(task.id);
+    }
+
+    // 3. Kiểm tra trùng lặp với DB
+    const batchIds = Array.from(seenBatch);
+    const placeholders = batchIds.map(() => '?').join(',');
+    const existingRows = this.db
+      .prepare(`SELECT id FROM tasks WHERE id IN (${placeholders})`)
+      .all(...batchIds) as Array<{ id: string }>;
+    if (existingRows.length > 0) {
+      const conflictId = existingRows[0]?.id;
+      throw new AppError('TASK_ALREADY_EXISTS', `Task with id '${conflictId}' already exists in database`, {
+        taskId: conflictId,
+      });
+    }
+
+    // 4. Kiểm tra dependencies: mọi dependency phải tồn tại trong batch hoặc trong DB
+    const allCandidateIds = new Set<string>(batchIds);
+    const allReferencedDeps = new Set<string>();
+    for (const task of validatedTasks) {
+      const deps = task.dependencies ?? [];
+      for (const dep of deps) {
+        if (dep === task.id) {
+          throw new AppError('SELF_DEPENDENCY_ERROR', `Task '${task.id}' cannot depend on itself`, {
+            taskId: task.id,
+            dependsOnId: dep,
+          });
+        }
+        allReferencedDeps.add(dep);
+      }
+    }
+
+    const externalDeps = Array.from(allReferencedDeps).filter((dep) => !allCandidateIds.has(dep));
+    if (externalDeps.length > 0) {
+      const missing = this.findMissingDependencies(externalDeps);
+      if (missing.length > 0) {
+        throw new AppError(
+          'FOREIGN_KEY_VIOLATION',
+          `Referenced dependency task(s) do not exist: ${missing.join(', ')}`,
+          { missingDependencies: missing },
+        );
+      }
+    }
+
+    // 5. Atomic transaction insert: chèn toàn bộ tasks trước, sau đó chèn dependencies
+    const now = new Date().toISOString();
+    const insertTaskStmt = this.db.prepare(`
+      INSERT INTO tasks (
+        id, feature_id, title, description, phase, worker_type, repository,
+        acceptance_criteria, test_commands, priority, max_attempts, timeout_minutes,
+        status, attempts, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const bulkTx = this.db.transaction(() => {
+      for (const task of validatedTasks) {
+        const createdAt = task.created_at ?? now;
+        const updatedAt = task.updated_at ?? now;
+        insertTaskStmt.run(
+          task.id,
+          task.feature_id ?? null,
+          task.title,
+          task.description ?? null,
+          task.phase ?? null,
+          task.worker_type ?? 'agy',
+          task.repository ?? '.',
+          JSON.stringify(task.acceptance_criteria ?? []),
+          JSON.stringify(task.test_commands ?? []),
+          task.priority ?? 0,
+          task.max_attempts ?? 3,
+          task.timeout_minutes ?? 30,
+          task.status ?? 'TODO',
+          task.attempts ?? 0,
+          createdAt,
+          updatedAt,
+        );
+      }
+
+      for (const task of validatedTasks) {
+        const deps = task.dependencies ?? [];
+        if (deps.length > 0) {
+          this.depRepo.setForTask(task.id, deps);
+        }
+      }
+    });
+
+    try {
+      bulkTx();
+    } catch (error: unknown) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      this.handleSqliteError(error, 'batch');
+    }
+
+    return batchIds.map((id) => {
+      const task = this.findById(id);
+      if (!task) {
+        throw new AppError('TASK_NOT_FOUND', `Failed to retrieve task '${id}' after batch creation`, {
+          taskId: id,
+        });
+      }
+      return task;
+    });
   }
 
   updateStatus(
@@ -355,6 +532,9 @@ export class TaskRepository {
   }
 
   private handleSqliteError(error: unknown, taskId: string): never {
+    if (error instanceof AppError) {
+      throw error;
+    }
     const sqliteErr = error as { code?: string; message?: string };
     if (
       sqliteErr.code === 'SQLITE_CONSTRAINT_PRIMARYKEY' ||
@@ -367,7 +547,7 @@ export class TaskRepository {
     if (sqliteErr.code === 'SQLITE_CONSTRAINT_FOREIGNKEY') {
       throw new AppError(
         'FOREIGN_KEY_VIOLATION',
-        `Foreign key constraint failed for task '${taskId}'`,
+        `Foreign key constraint failed for task '${taskId}': referenced entity does not exist`,
         { taskId, error: sqliteErr.message },
       );
     }

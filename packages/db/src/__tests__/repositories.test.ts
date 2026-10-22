@@ -268,6 +268,72 @@ describe('TSK-001: DB Repositories (Task, Feature, TaskDependency)', () => {
       featureRepo.delete('FEAT-X');
       expect(taskRepo.findById('T-X')?.feature_id).toBeNull();
     });
+
+    it('Rejects addDependency when dependency task does not exist', () => {
+      taskRepo.create({ id: 'TASK-VALID', title: 'Valid' });
+      expect(() => taskRepo.addDependency('TASK-VALID', 'TASK-NON-EXISTENT')).toThrowError(
+        expect.objectContaining({ code: 'FOREIGN_KEY_VIOLATION' }),
+      );
+    });
+
+    it('findMissingDependencies correctly identifies existing and non-existing tasks', () => {
+      taskRepo.create({ id: 'T-EXIST-1', title: '1' });
+      taskRepo.create({ id: 'T-EXIST-2', title: '2' });
+
+      const missing = taskRepo.findMissingDependencies(['T-EXIST-1', 'T-MISSING-1', 'T-EXIST-2', 'T-MISSING-2']);
+      expect(missing).toEqual(['T-MISSING-1', 'T-MISSING-2']);
+      expect(taskRepo.findMissingDependencies([])).toEqual([]);
+    });
+
+    it('createMany atomically creates tasks and internal dependencies', () => {
+      const created = taskRepo.createMany([
+        { id: 'BATCH-1', title: 'Batch 1' },
+        { id: 'BATCH-2', title: 'Batch 2', dependencies: ['BATCH-1'] },
+        { id: 'BATCH-3', title: 'Batch 3', dependencies: ['BATCH-1', 'BATCH-2'] },
+      ]);
+
+      expect(created).toHaveLength(3);
+      expect(taskRepo.exists('BATCH-1')).toBe(true);
+      expect(taskRepo.exists('BATCH-2')).toBe(true);
+      expect(taskRepo.exists('BATCH-3')).toBe(true);
+      expect(taskRepo.getDependencies('BATCH-3')).toEqual(['BATCH-1', 'BATCH-2']);
+    });
+
+    it('createMany rejects batch with duplicate task id and rolls back', () => {
+      expect(() =>
+        taskRepo.createMany([
+          { id: 'BATCH-DUP-1', title: 'First' },
+          { id: 'BATCH-DUP-1', title: 'Duplicate' },
+        ]),
+      ).toThrowError(expect.objectContaining({ code: 'DUPLICATE_TASK_ID' }));
+
+      expect(taskRepo.exists('BATCH-DUP-1')).toBe(false);
+    });
+
+    it('createMany rejects batch with task id already in DB and rolls back', () => {
+      taskRepo.create({ id: 'ALREADY-IN-DB', title: 'Existing' });
+
+      expect(() =>
+        taskRepo.createMany([
+          { id: 'NEW-IN-BATCH', title: 'New' },
+          { id: 'ALREADY-IN-DB', title: 'Conflict' },
+        ]),
+      ).toThrowError(expect.objectContaining({ code: 'TASK_ALREADY_EXISTS' }));
+
+      expect(taskRepo.exists('NEW-IN-BATCH')).toBe(false);
+    });
+
+    it('createMany rejects batch with non-existent dependency and rolls back', () => {
+      expect(() =>
+        taskRepo.createMany([
+          { id: 'CLEAN-1', title: 'Clean 1' },
+          { id: 'CLEAN-2', title: 'Clean 2', dependencies: ['GHOST-DEP'] },
+        ]),
+      ).toThrowError(expect.objectContaining({ code: 'FOREIGN_KEY_VIOLATION' }));
+
+      expect(taskRepo.exists('CLEAN-1')).toBe(false);
+      expect(taskRepo.exists('CLEAN-2')).toBe(false);
+    });
   });
 
   describe('TaskDependencyRepository', () => {

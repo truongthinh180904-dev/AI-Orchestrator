@@ -10,12 +10,20 @@ import { validateTaskRow } from './taskValidator.js';
 import { validateFeatureRow } from './featureValidator.js';
 import { validateConfig } from './configValidator.js';
 import {
+  validateRelationships,
+  type TaskRelationshipCandidate,
+  type FeatureRelationshipCandidate,
+} from './relationshipValidator.js';
+import {
   TASK_HEADER_ALIASES,
   FEATURE_HEADER_ALIASES,
   normalizeHeader,
+  parseString,
+  parseIdList,
   type ParsedWorkbookResult,
   type RawRow,
 } from '../parser/types.js';
+import { canonicalizeRow } from '../parser/mappers.js';
 
 export class WorkbookValidationError extends AppError {
   constructor(public report: ValidationReport) {
@@ -91,6 +99,18 @@ export function validateWorkbook(
       message: "Sheet 'Config' là bắt buộc theo tùy chọn cấu hình.",
       severity: 'error',
     });
+  }
+
+  // 4. Validate cross-entity relationships (duplicate IDs, non-existent dependencies, feature references)
+  if (workbook.tasks && workbook.tasks.length > 0) {
+    const relationshipIssues = validateRelationships(
+      {
+        tasks: workbook.tasks,
+        features: workbook.features,
+      },
+      options,
+    );
+    allIssues.push(...relationshipIssues);
   }
 
   // Split errors and warnings
@@ -246,6 +266,42 @@ export function validateRawWorkbook(
       message: "Thiếu sheet bắt buộc 'Config'.",
       severity: 'error',
     });
+  }
+
+  // 4. Validate cross-entity relationships for raw workbook
+  if (rawInput.tasks && rawInput.tasks.length > 0) {
+    const taskCandidates: TaskRelationshipCandidate[] = rawInput.tasks.map((r) => {
+      const c = canonicalizeRow(r.data, TASK_HEADER_ALIASES);
+      const id = parseString(c['id'], '') ?? '';
+      const featureId = parseString(c['feature_id'], null);
+      const dependencies = parseIdList(c['dependencies']);
+      return {
+        id,
+        dependencies,
+        feature_id: featureId,
+        rowNumber: r.rowNumber,
+      };
+    });
+
+    const featureCandidates: FeatureRelationshipCandidate[] = (rawInput.features ?? []).map((r) => {
+      const c = canonicalizeRow(r.data, FEATURE_HEADER_ALIASES);
+      const id = parseString(c['id'], '') ?? '';
+      const requiredTasks = parseIdList(c['required_tasks']);
+      return {
+        id,
+        required_tasks: requiredTasks,
+        rowNumber: r.rowNumber,
+      };
+    });
+
+    const relationshipIssues = validateRelationships(
+      {
+        tasks: taskCandidates,
+        features: featureCandidates,
+      },
+      options,
+    );
+    allIssues.push(...relationshipIssues);
   }
 
   let errors = allIssues.filter((i) => i.severity === 'error');

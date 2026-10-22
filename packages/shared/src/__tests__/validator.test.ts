@@ -644,11 +644,208 @@ describe('Validator Module (TSK-003)', () => {
     it('Validate thành công dữ liệu file mẫu Excel hợp lệ (fixtures/sample-tasks.xlsx)', async () => {
       const samplePath = path.resolve(process.cwd(), 'fixtures/sample-tasks.xlsx');
       const parsed = await parseImportFile(samplePath);
-      const report = validateWorkbook(parsed);
+      const report = validateWorkbook(parsed, { existingTaskIds: ['FND-003'] });
 
       expect(report.valid).toBe(true);
       expect(report.errorCount).toBe(0);
       expect(report.errors).toHaveLength(0);
+    });
+  });
+
+  describe('TSK-004: Quan hệ thực thể — Phát hiện trùng task_id, dependency không tồn tại', () => {
+    it('Phát hiện trùng task_id trong cùng sheet Tasks', () => {
+      const report = validateRawWorkbook({
+        tasks: [
+          { rowNumber: 2, data: { id: 'TSK-001', title: 'Task 1' } },
+          { rowNumber: 3, data: { id: 'TSK-002', title: 'Task 2' } },
+          { rowNumber: 4, data: { id: 'TSK-001', title: 'Task 1 duplicate' } },
+        ],
+      });
+
+      expect(report.valid).toBe(false);
+      const dupError = report.errors.find((e) => e.code === VALIDATION_ERROR_CODES.DUPLICATE_TASK_ID);
+      expect(dupError).toBeDefined();
+      expect(dupError).toMatchObject({
+        sheet: 'Tasks',
+        row: 4,
+        column: 'id',
+        code: VALIDATION_ERROR_CODES.DUPLICATE_TASK_ID,
+        value: 'TSK-001',
+      });
+      expect(dupError?.message).toContain('dòng 2');
+    });
+
+    it('Phát hiện trùng task_id với task đã có trong existingTaskIds', () => {
+      const report = validateRawWorkbook(
+        {
+          tasks: [{ rowNumber: 2, data: { id: 'TSK-EXISTING', title: 'New Task with existing id' } }],
+        },
+        { existingTaskIds: ['TSK-EXISTING'] },
+      );
+
+      expect(report.valid).toBe(false);
+      const dupError = report.errors.find((e) => e.code === VALIDATION_ERROR_CODES.DUPLICATE_TASK_ID);
+      expect(dupError).toBeDefined();
+      expect(dupError).toMatchObject({
+        sheet: 'Tasks',
+        row: 2,
+        column: 'id',
+        code: VALIDATION_ERROR_CODES.DUPLICATE_TASK_ID,
+        value: 'TSK-EXISTING',
+      });
+    });
+
+    it('Phát hiện trùng feature_id trong sheet Features và với existingFeatureIds', () => {
+      const report = validateRawWorkbook(
+        {
+          tasks: [{ rowNumber: 2, data: { id: 'TSK-001', title: 'Task 1' } }],
+          features: [
+            { rowNumber: 2, data: { id: 'FEAT-01', name: 'Feature 1' } },
+            { rowNumber: 3, data: { id: 'FEAT-01', name: 'Feature 1 Duplicate' } },
+            { rowNumber: 4, data: { id: 'FEAT-OLD', name: 'Feature Old' } },
+          ],
+        },
+        { existingFeatureIds: ['FEAT-OLD'] },
+      );
+
+      expect(report.valid).toBe(false);
+      const dupErrors = report.errors.filter((e) => e.code === VALIDATION_ERROR_CODES.DUPLICATE_FEATURE_ID);
+      expect(dupErrors).toHaveLength(2);
+      expect(dupErrors[0]).toMatchObject({
+        sheet: 'Features',
+        row: 3,
+        column: 'id',
+        value: 'FEAT-01',
+      });
+      expect(dupErrors[1]).toMatchObject({
+        sheet: 'Features',
+        row: 4,
+        column: 'id',
+        value: 'FEAT-OLD',
+      });
+    });
+
+    it('Phát hiện dependency không tồn tại trong workbook', () => {
+      const report = validateRawWorkbook({
+        tasks: [
+          { rowNumber: 2, data: { id: 'TSK-001', title: 'Task 1' } },
+          { rowNumber: 3, data: { id: 'TSK-002', title: 'Task 2', dependencies: 'TSK-001, GHOST-TASK' } },
+        ],
+      });
+
+      expect(report.valid).toBe(false);
+      const depError = report.errors.find((e) => e.code === VALIDATION_ERROR_CODES.NON_EXISTENT_DEPENDENCY);
+      expect(depError).toBeDefined();
+      expect(depError).toMatchObject({
+        sheet: 'Tasks',
+        row: 3,
+        column: 'dependencies',
+        code: VALIDATION_ERROR_CODES.NON_EXISTENT_DEPENDENCY,
+        value: 'GHOST-TASK',
+      });
+    });
+
+    it('Cho phép dependency hợp lệ trong cùng workbook hoặc trong existingTaskIds', () => {
+      const report = validateRawWorkbook(
+        {
+          tasks: [
+            { rowNumber: 2, data: { id: 'TSK-001', title: 'Task 1' } },
+            { rowNumber: 3, data: { id: 'TSK-002', title: 'Task 2', dependencies: 'TSK-001, TSK-IN-DB' } },
+          ],
+        },
+        { existingTaskIds: ['TSK-IN-DB'] },
+      );
+
+      expect(report.valid).toBe(true);
+      expect(report.errorCount).toBe(0);
+    });
+
+    it('Phát hiện tham chiếu feature_id và required_tasks không tồn tại', () => {
+      const report = validateRawWorkbook({
+        tasks: [
+          { rowNumber: 2, data: { id: 'TSK-001', title: 'Task 1', feature_id: 'NON-EXISTENT-FEAT' } },
+        ],
+        features: [
+          { rowNumber: 2, data: { id: 'FEAT-001', name: 'Feat 1', required_tasks: 'NON-EXISTENT-TASK' } },
+        ],
+      });
+
+      expect(report.valid).toBe(false);
+      const featError = report.errors.find((e) => e.code === VALIDATION_ERROR_CODES.MISSING_FEATURE);
+      expect(featError).toBeDefined();
+      expect(featError).toMatchObject({
+        sheet: 'Tasks',
+        row: 2,
+        column: 'feature_id',
+        value: 'NON-EXISTENT-FEAT',
+      });
+
+      const reqTaskError = report.errors.find((e) => e.code === VALIDATION_ERROR_CODES.MISSING_REQUIRED_TASK);
+      expect(reqTaskError).toBeDefined();
+      expect(reqTaskError).toMatchObject({
+        sheet: 'Features',
+        row: 2,
+        column: 'required_tasks',
+        value: 'NON-EXISTENT-TASK',
+      });
+    });
+
+    it('assertValidWorkbook ném WorkbookValidationError và từ chối dữ liệu trùng ID hoặc thiếu dependency', () => {
+      const invalidWorkbook: ParsedWorkbookResult = {
+        tasks: [
+          {
+            id: 'TSK-DUP',
+            feature_id: null,
+            title: 'Task 1',
+            description: null,
+            phase: null,
+            worker_type: 'agy',
+            repository: '.',
+            acceptance_criteria: [],
+            test_commands: [],
+            priority: 0,
+            max_attempts: 3,
+            timeout_minutes: 30,
+            dependencies: [],
+            status: 'TODO',
+            rowNumber: 2,
+            raw: { id: 'TSK-DUP', title: 'Task 1' },
+          },
+          {
+            id: 'TSK-DUP',
+            feature_id: null,
+            title: 'Task 2',
+            description: null,
+            phase: null,
+            worker_type: 'agy',
+            repository: '.',
+            acceptance_criteria: [],
+            test_commands: [],
+            priority: 0,
+            max_attempts: 3,
+            timeout_minutes: 30,
+            dependencies: ['TSK-NON-EXISTENT'],
+            status: 'TODO',
+            rowNumber: 3,
+            raw: { id: 'TSK-DUP', title: 'Task 2', dependencies: 'TSK-NON-EXISTENT' },
+          },
+        ],
+        features: [],
+        config: {
+          repository: '.',
+          agy_bin: 'agy',
+          agy_args: '-p',
+          verify_commands: [],
+          max_attempts: 3,
+          timeout_minutes: 30,
+          max_concurrency: 1,
+          settings: {},
+          raw: {},
+        },
+        sourceType: 'excel',
+      };
+
+      expect(() => assertValidWorkbook(invalidWorkbook)).toThrowError(WorkbookValidationError);
     });
   });
 });

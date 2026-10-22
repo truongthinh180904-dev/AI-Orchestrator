@@ -144,3 +144,33 @@
   - Cung cấp `assertValidWorkbook` tự động ném `WorkbookValidationError` khi dữ liệu không hợp lệ.
   - Cung cấp `parseAndValidateWorkbook` kết hợp parser (TSK-002) và validator (TSK-003) làm điểm vào thuận tiện cho API import (TSK-006).
 
+## TSK-004: Phát hiện trùng task_id, dependency không tồn tại — Từ chối dữ liệu sai
+- **Module quan hệ thực thể (packages/shared/src/validator/relationshipValidator.ts)**:
+  - `validateTaskIdsUniqueness`:
+    - Quét toàn bộ danh sách task trong sheet Tasks hoặc batch import.
+    - Phát hiện trùng lặp task_id nội bộ trong tập dữ liệu, báo lỗi tọa độ `(Tasks, dòng X, id)` với mã `DUPLICATE_TASK_ID` và thông điệp chỉ rõ dòng xuất hiện trước đó.
+    - Kiểm tra đối chiếu với `options.existingTaskIds` (hoặc DB), báo lỗi `DUPLICATE_TASK_ID` khi mã task đã tồn tại trong hệ thống.
+  - `validateFeatureIdsUniqueness`:
+    - Phát hiện trùng lặp `feature_id` trong sheet Features và với `options.existingFeatureIds`, báo lỗi `DUPLICATE_FEATURE_ID`.
+  - `validateDependenciesExistence`:
+    - Tập hợp tất cả các task_id hợp lệ từ batch hiện tại và `options.existingTaskIds`.
+    - Mặc định bổ sung `FOUNDATION_TASK_IDS` (`FND-001` ... `FND-006`) làm các task nền tảng đã hoàn thành của hệ thống khi không truyền `options.existingTaskIds`, giúp các task nghiệp vụ tham chiếu dependency nền tảng (như file mẫu `sample-tasks.xlsx`) được chấp thuận tự nhiên mà không cần cấu hình thêm.
+    - Báo lỗi tọa độ `(Tasks, dòng X, dependencies)` với mã lỗi `NON_EXISTENT_DEPENDENCY` (kèm alias `MISSING_DEPENDENCY`) cho từng dependency không tồn tại.
+  - `validateCrossEntityReferences`:
+    - Báo lỗi `MISSING_FEATURE` khi `task.feature_id` không tồn tại trong sheet Features hoặc `existingFeatureIds`.
+    - Báo lỗi `MISSING_REQUIRED_TASK` khi `feature.required_tasks` tham chiếu task không tồn tại.
+  - `validateRelationships`: Gom tất cả các kiểm tra quan hệ trên và tích hợp tự động vào cả `validateWorkbook` lẫn `validateRawWorkbook`.
+- **Cơ chế từ chối dữ liệu sai (assertValidWorkbook)**:
+  - Khi có bất kỳ lỗi trùng task_id hoặc dependency không tồn tại nào, `validateWorkbook` và `validateRawWorkbook` thiết lập `valid: false` và liệt kê chi tiết trong `errors`.
+  - `assertValidWorkbook` tự động ném `WorkbookValidationError` (kế thừa `AppError`) chứa toàn bộ thông tin chi tiết về các lỗi này, ngăn chặn triệt để dữ liệu sai lọt vào hệ thống.
+- **Tầng cơ sở dữ liệu (TaskRepository & TaskDependencyRepository)**:
+  - Bổ sung `findMissingDependencies(dependencies: string[])` trên `TaskRepository`: truy vấn nhanh và trả về danh sách các ID dependency chưa có trong DB.
+  - Cải tiến `create()` và `update()`: kiểm tra trước các dependency tham chiếu, ném `AppError('FOREIGN_KEY_VIOLATION')` hoặc `TASK_ALREADY_EXISTS` rõ ràng kèm context.
+  - Cải tiến `addDependency()`: kiểm tra sự tồn tại của task đích trước khi insert.
+  - Bổ sung `createMany()`: Thực hiện nạp hàng loạt (bulk create) theo mô hình giao dịch nguyên tử (atomic transaction).
+    - Kiểm tra trùng lặp ID trong batch (`DUPLICATE_TASK_ID`).
+    - Kiểm tra trùng lặp ID với DB (`TASK_ALREADY_EXISTS`).
+    - Kiểm tra toàn bộ dependency (nội bộ batch + DB) (`FOREIGN_KEY_VIOLATION`).
+    - Nếu xảy ra bất kỳ lỗi nào, toàn bộ giao dịch bị rollback và không có task nào được ghi vào cơ sở dữ liệu ("Từ chối dữ liệu sai").
+
+
