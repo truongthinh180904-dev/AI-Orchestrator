@@ -57,6 +57,12 @@ export interface ProcessExitResult {
   durationMs: number;
 }
 
+export interface TerminateProcessOptions {
+  gracePeriodMs?: number;
+  signal?: NodeJS.Signals;
+  forceSignal?: NodeJS.Signals;
+}
+
 export interface BuildProcessEnvOptions {
   sourceEnv?: Record<string, string | undefined>;
   whitelist?: readonly string[];

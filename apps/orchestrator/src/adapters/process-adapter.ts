@@ -10,6 +10,7 @@ import {
   type AgentCommand,
   type AgentCommandInput,
   type ProcessExitResult,
+  type TerminateProcessOptions,
 } from '@ai-orchestrator/shared';
 
 export interface ProcessHandle extends EventEmitter {
@@ -24,6 +25,7 @@ export interface ProcessHandle extends EventEmitter {
   getExitResult(): ProcessExitResult | null;
   waitForExit(): Promise<ProcessExitResult>;
   kill(signal?: NodeJS.Signals): boolean;
+  terminate(options?: TerminateProcessOptions): Promise<ProcessExitResult>;
 }
 
 export class ProcessHandleImpl extends EventEmitter implements ProcessHandle {
@@ -123,8 +125,7 @@ export class ProcessHandleImpl extends EventEmitter implements ProcessHandle {
     return (
       this._running &&
       this.child.exitCode === null &&
-      this.child.signalCode === null &&
-      !this.child.killed
+      this.child.signalCode === null
     );
   }
 
@@ -153,6 +154,42 @@ export class ProcessHandleImpl extends EventEmitter implements ProcessHandle {
       return this.child.kill(signal);
     } catch {
       return false;
+    }
+  }
+
+  async terminate(options?: TerminateProcessOptions): Promise<ProcessExitResult> {
+    if (!this.isRunning()) {
+      return this.waitForExit();
+    }
+
+    const initialSignal = options?.signal ?? 'SIGTERM';
+    const forceSignal = options?.forceSignal ?? 'SIGKILL';
+    const gracePeriodMs = Math.max(0, options?.gracePeriodMs ?? 10_000);
+
+    // Send initial termination signal (SIGTERM)
+    this.kill(initialSignal);
+
+    let graceTimer: NodeJS.Timeout | null = null;
+
+    if (gracePeriodMs > 0) {
+      graceTimer = setTimeout(() => {
+        if (this.isRunning()) {
+          this.kill(forceSignal);
+        }
+      }, gracePeriodMs);
+      graceTimer.unref?.();
+    } else {
+      if (this.isRunning()) {
+        this.kill(forceSignal);
+      }
+    }
+
+    try {
+      return await this.waitForExit();
+    } finally {
+      if (graceTimer) {
+        clearTimeout(graceTimer);
+      }
     }
   }
 }

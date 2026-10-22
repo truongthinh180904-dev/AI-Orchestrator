@@ -354,3 +354,35 @@
   - Thuộc tính getter `recorder.resolution` lưu trữ chi tiết lý do và parsed result.
   - `ExecutionCompletionResult` mở rộng cung cấp `status: RunStatus` và `resolution: RunResolutionResult`.
 - **Dependencies**: Không thêm dependency bên ngoài mới (sử dụng thư viện có sẵn `zod`, `better-sqlite3`, `@ai-orchestrator/shared`, `@ai-orchestrator/db`).
+
+## AGY-005: Timeout: SIGTERM → chờ grace → SIGKILL; hàm stop(runId) — Process treo bị dừng đúng hạn
+- **Vị trí Module**:
+  - `packages/shared/src/models/agent-command.ts`: Định nghĩa interface `TerminateProcessOptions` (`gracePeriodMs`, `signal`, `forceSignal`).
+  - `packages/shared/src/models/event.ts`: Bổ sung sự kiện `PROCESS_TIMEOUT` (`process_timeout`) và `PROCESS_STOPPED` (`process_stopped`) vào `STANDARD_EVENT_TYPES`.
+  - `apps/orchestrator/src/adapters/process-adapter.ts`:
+    - Khai báo và hiện thực phương thức `terminate(options?: TerminateProcessOptions)` trên `ProcessHandle` và `ProcessHandleImpl`.
+    - Điều chỉnh `isRunning()`: Bỏ điều kiện `!this.child.killed` để phản ánh đúng trạng thái thực tế của tiến trình (`exitCode === null && signalCode === null && _running`). Khi Node.js gọi `child.kill('SIGTERM')`, Node tự động đánh dấu `child.killed = true`, nhưng tiến trình ngoan cố có thể vẫn còn chạy và cần tiếp tục nhận tín hiệu `SIGKILL` sau khi hết thời gian ân hạn (`gracePeriodMs`).
+  - `apps/orchestrator/src/adapters/execution-manager.ts`: Triển khai lớp `ExecutionManager`, singleton `defaultExecutionManager`, và hàm độc lập `stop(runId)` phục vụ dừng tiến trình theo yêu cầu và điều phối timeout watchdog.
+  - `apps/orchestrator/src/adapters/index.ts`: Re-export toàn bộ module `execution-manager.js`.
+- **Cơ chế Hủy Tiến trình Tuần tự (SIGTERM → grace → SIGKILL)**:
+  - Khi bắt đầu dừng tiến trình (do timeout hoặc do gọi `stop(runId)`):
+    1. Gửi tín hiệu ban đầu `SIGTERM` tới tiến trình (hoặc tới process group `-pid` nếu `detached: true`).
+    2. Khởi động timer đếm lùi thời gian ân hạn `gracePeriodMs` (mặc định 10s, có thể cấu hình tùy ý).
+    3. Nếu tiến trình thoát bình thường trong thời gian ân hạn: timer được hủy ngay lập tức qua `clearTimeout()`, không gửi `SIGKILL`.
+    4. Nếu tiến trình ngoan cố/bị treo (bỏ qua SIGTERM, bẫy tín hiệu): khi timer hết hạn, hệ thống tự động gửi tín hiệu cưỡng chế `SIGKILL` buộc hệ điều hành tiêu diệt tiến trình.
+- **Cơ chế Timeout Watchdog**:
+  - Khi tiến trình được khởi chạy qua `startRun({ timeoutMs, ... })` hoặc đăng ký qua `register({ timeoutMs, ... })`:
+    - Nếu tiến trình hoàn tất trước hạn: timer timeout được hủy tự động qua sự kiện `close`/`error`.
+    - Nếu quá hạn `timeoutMs` mà tiến trình vẫn đang chạy: watchdog tự động đánh dấu `markTimeout()`, phát event `process_timeout` vào bảng `events`, và kích hoạt `terminate()` để dọn dẹp tiến trình treo đúng hạn, chuyển trạng thái trong bảng `runs` thành `TIMEOUT`.
+- **Hàm `stop(runId)` & Quản lý Hủy bỏ**:
+  - Cho phép dừng một lần chạy theo ID. Nếu tìm thấy tiến trình đang chạy:
+    - Hủy timer timeout đang chờ (nếu có) để ngăn xung đột trạng thái.
+    - Đánh dấu `isCancelled` và gọi `recorder.markCancelled()`.
+    - Ghi nhận event `process_stopped` vào bảng `events`.
+    - Thực hiện chu trình `terminate({ gracePeriodMs })`.
+    - Trạng thái cuối cùng của run được cập nhật thành `CANCELLED`.
+  - Cung cấp hàm xuất độc lập `stop(runId)` chuyển tiếp tới `defaultExecutionManager`, sẵn sàng tích hợp thẳng vào Fastify route `POST /runs/:id/stop` của `AGY-007`.
+  - Cung cấp `stopAll()` phục vụ graceful shutdown hệ thống.
+- **Tính Tất định trong Kiểm thử (Test Reliability)**:
+  - Để tránh race condition khi Vitest chạy đồng thời 37 worker processes khiến tiến trình con chưa kịp khởi động đã nhận tín hiệu, các kịch bản kiểm thử tiến trình ngoan cố sử dụng cơ chế đồng bộ qua file cờ `readyFile` (`fs.writeFileSync`) ngay sau khi đăng ký `process.on('SIGTERM')`. Điều này đảm bảo 100% tính tất định và ổn định trên mọi môi trường.
+- **Dependencies**: Không thêm dependency bên ngoài mới (sử dụng thư viện Node.js có sẵn `node:child_process`, `node:events`, `node:fs`, `node:path`, `node:os`).
