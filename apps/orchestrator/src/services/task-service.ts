@@ -6,20 +6,31 @@ import {
   type TaskFilter,
   type UpdateTaskInput,
   type TaskStatus,
+  type TaskDependencyStatus,
 } from '@ai-orchestrator/shared';
 import { TaskStateService, type TransitionTaskOptions } from './task-state-service.js';
+import {
+  DependencyResolverService,
+  type ResolveServiceOptions,
+} from './dependency-resolver-service.js';
 
 export class TaskService {
   private readonly taskRepo: TaskRepository;
   private readonly stateService: TaskStateService;
+  private readonly resolverService: DependencyResolverService;
 
   constructor(db: Database.Database) {
     this.taskRepo = new TaskRepository(db);
     this.stateService = new TaskStateService(db);
+    this.resolverService = new DependencyResolverService(db);
   }
 
   get state(): TaskStateService {
     return this.stateService;
+  }
+
+  get resolver(): DependencyResolverService {
+    return this.resolverService;
   }
 
   list(filter?: TaskFilter, search?: string): TaskWithDependencies[] {
@@ -59,5 +70,26 @@ export class TaskService {
   getAllowedTransitions(id: string): readonly TaskStatus[] {
     return this.stateService.getAllowedTransitions(id);
   }
-}
 
+  getReadyTasks(
+    filter?: TaskFilter,
+    options?: ResolveServiceOptions,
+  ): TaskWithDependencies[] {
+    return this.resolverService.getReadyTasks(filter, options);
+  }
+
+  getNextReadyTask(
+    filter?: TaskFilter,
+    options?: { autoTransition?: boolean },
+  ): TaskWithDependencies | null {
+    return this.resolverService.getNextReadyTask(filter, options);
+  }
+
+  getDependencyStatus(id: string): TaskDependencyStatus {
+    return this.resolverService.getDependencyStatus(id);
+  }
+
+  resolveReady(filter?: TaskFilter): TaskWithDependencies[] {
+    return this.resolverService.resolveAndTransitionReady(filter);
+  }
+}

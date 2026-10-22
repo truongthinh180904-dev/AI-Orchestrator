@@ -14,6 +14,9 @@ import {
   DependencyGraph,
   type CycleDetectionResult,
   assertValidTaskTransition,
+  DependencyResolver,
+  type TaskDependencyStatus,
+  type ResolveReadyOptions,
 } from '@ai-orchestrator/shared';
 import { TaskDependencyRepository } from './dependency-repository.js';
 
@@ -638,6 +641,49 @@ export class TaskRepository {
 
     const requestedSet = new Set(taskIds);
     return fullOrder.filter((id) => requestedSet.has(id));
+  }
+
+  findReadyTasks(
+    filter?: TaskFilter,
+    options?: ResolveReadyOptions,
+  ): TaskWithDependencies[] {
+    const allTasks = this.findAll();
+    const resolver = new DependencyResolver(allTasks);
+    return resolver.getReadyTasks({
+      ...options,
+      featureId: filter?.feature_id ?? options?.featureId,
+      phase: filter?.phase ?? options?.phase,
+    });
+  }
+
+  getDependencyStatus(taskId: string): TaskDependencyStatus {
+    const allTasks = this.findAll();
+    const resolver = new DependencyResolver(allTasks);
+    return resolver.checkTask(taskId);
+  }
+
+  resolveAndMarkReady(filter?: TaskFilter): TaskWithDependencies[] {
+    const transitionTx = this.db.transaction(() => {
+      const allTasks = this.findAll();
+      const resolver = new DependencyResolver(allTasks);
+      // Chỉ tìm các task 'TODO' có đầy đủ dependencies 'DONE'
+      const eligibleTodoTasks = resolver.getReadyTasks({
+        featureId: filter?.feature_id,
+        phase: filter?.phase,
+        candidateStatuses: ['TODO'],
+      });
+
+      for (const task of eligibleTodoTasks) {
+        this.transitionStatus(task.id, 'READY', {
+          reason: 'Dependencies satisfied (resolved ready)',
+        });
+      }
+
+      // Trả về danh sách toàn bộ các task READY hiện tại
+      return this.findReadyTasks(filter, { candidateStatuses: ['READY'] });
+    });
+
+    return transitionTx();
   }
 
   private handleSqliteError(error: unknown, taskId: string): never {

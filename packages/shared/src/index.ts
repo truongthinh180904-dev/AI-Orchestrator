@@ -7,3 +7,4 @@ export * from './parser/index.js';
 export * from './validator/index.js';
 export * from './graph/index.js';
 export * from './state/index.js';
+export * from './resolver/index.js';

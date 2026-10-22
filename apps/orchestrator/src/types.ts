@@ -53,6 +53,22 @@ export const TaskTransitionBodySchema = z.object({
 });
 export type TaskTransitionBodyInput = z.infer<typeof TaskTransitionBodySchema>;
 
+export const TaskReadyQuerySchema = TaskFilterSchema.extend({
+  autoTransition: z
+    .union([z.boolean(), z.string()])
+    .optional()
+    .transform((val) => {
+      if (val === undefined) return false;
+      if (typeof val === 'boolean') return val;
+      return val === 'true' || val === '1';
+    }),
+  limit: z.coerce.number().int().positive().optional(),
+});
+export type TaskReadyQueryInput = z.infer<typeof TaskReadyQuerySchema>;
+
+export const TaskResolveReadyBodySchema = TaskFilterSchema.extend({});
+export type TaskResolveReadyBodyInput = z.infer<typeof TaskResolveReadyBodySchema>;
+
 export const FeatureQuerySchema = FeatureFilterSchema;
 export type FeatureQueryInput = z.infer<typeof FeatureQuerySchema>;
 

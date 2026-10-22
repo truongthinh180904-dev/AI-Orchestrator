@@ -494,3 +494,37 @@
   - `GET /tasks/:id/allowed-transitions` & `GET /api/tasks/:id/allowed-transitions`: Truy vấn danh sách trạng thái hợp lệ có thể chuyển đến từ trạng thái hiện tại của task.
 - **Dependencies**: Không thêm bất kỳ dependency bên ngoài nào mới.
 
+## ORC-002: Dependency resolver: danh sách task READY — Chỉ trả task đủ dependency
+- **Mục tiêu & Nguyên tắc Nghiệm Thu Cốt Lõi**:
+  - Xây dựng module phân giải phụ thuộc (`DependencyResolver`) chịu trách nhiệm xác định chính xác danh sách các task sẵn sàng thực thi (`READY`).
+  - **Tiêu chuẩn nghiệm thu bất biến ("Chỉ trả task đủ dependency")**: Một task CHỈ ĐƯỢC COI LÀ SẴN SÀNG khi 100% dependencies của nó tồn tại và đã ở trạng thái `DONE`. Bất kỳ dependency nào đang ở trạng thái `TODO`, `READY`, `RUNNING`, `VERIFYING`, `FAILED`, `BLOCKED`, `PAUSED`, `CANCELLED` hoặc bị thiếu (`MISSING`) đều lập tức loại trừ task phụ thuộc khỏi danh sách `READY`.
+  - Task không có dependencies (dependencies = []) lập tức thỏa mãn điều kiện dependencies ngay khi ở trạng thái `TODO` hoặc `READY`.
+- **Module Phân Giải Phụ Thuộc Domain (`packages/shared/src/resolver/`)**:
+  - `types.ts`: Định nghĩa schema và kiểu dữ liệu `TaskDependencyStatus`, `TaskDependencyItem`, `ResolveReadyOptions`, `DependencyResolutionSummary`.
+  - `dependency-resolver.ts`:
+    - Hàm thuần khiết `isDependencySatisfied(status)`: Trả về `true` duy nhất khi `status === 'DONE'`.
+    - Hàm thuần khiết `checkTaskDependencies(task, lookup)`: Phân tích chi tiết tình trạng dependencies, bóc tách danh sách dependencies đã xong (`satisfiedDependencies`), chưa xong (`unsatisfiedDependencies` kèm trạng thái hiện tại), và bị thiếu (`missingDependencies`).
+    - Lớp `DependencyResolver`: Quản lý tập hợp task trong bộ nhớ, cung cấp các hàm nghiệp vụ:
+      - `getReadyTasks(options)`: Lọc theo `featureId`, `phase`, `repository`, trạng thái ứng viên `candidateStatuses` (mặc định `['TODO', 'READY']`), áp dụng kiểm tra nghiêm ngặt mọi dependency phải là `DONE`.
+      - Sắp xếp kết quả tất định (deterministic):
+        1. `priority` giảm dần (nhiệm vụ quan trọng ưu tiên chạy trước cho Scheduler ORC-003).
+        2. `created_at` tăng dần (nhiệm vụ vào trước xếp trước).
+        3. `id` tăng dần (theo bảng chữ cái).
+      - `getNextReadyTask(options)`: Lấy task có độ ưu tiên cao nhất sẵn sàng chạy ngay.
+      - `checkTask(taskId)`: Báo cáo chi tiết tình trạng dependencies của 1 task kèm lý do rõ ràng.
+      - `getResolutionSummary()`: Tổng hợp bức tranh toàn cảnh gồm readyTasks, blockedTasks (bị chặn bởi lỗi/hủy), pendingTasks (đang chờ tiền đề chạy), completedTasks.
+      - `findBlockedByFailedTasks()`: Nhận diện các task bị nghẽn do tiền đề bị FAILED, CANCELLED hoặc BLOCKED.
+- **Tầng Lưu Trữ Database (`packages/db/src/repositories/task-repository.ts`)**:
+  - Bổ sung `findReadyTasks(filter, options)`: Truy vấn toàn bộ task và chạy qua `DependencyResolver` để bảo đảm tính thống nhất tuyệt đối giữa logic nghiệp vụ và dữ liệu SQLite.
+  - Bổ sung `getDependencyStatus(taskId)`: Truy xuất tình trạng phụ thuộc chi tiết của task từ cơ sở dữ liệu.
+  - Bổ sung `resolveAndMarkReady(filter)`: Thực hiện trong SQLite transaction an toàn: tìm tất cả các task `TODO` có đầy đủ dependencies `DONE`, chuyển trạng thái sang `READY` với lý do `'Dependencies satisfied (resolved ready)'`, và trả về danh sách các task `READY`.
+- **Tầng Dịch Vụ Orchestrator (`apps/orchestrator/src/services/dependency-resolver-service.ts` & `task-service.ts`)**:
+  - `DependencyResolverService`: Điều phối nghiệp vụ giải quyết phụ thuộc, hỗ trợ cờ `autoTransition: true` tự động đưa các task `TODO` đủ điều kiện vào trạng thái `READY` trước khi trả về.
+  - `TaskService`: Tích hợp `DependencyResolverService`, cung cấp các phương thức `getReadyTasks()`, `getNextReadyTask()`, `getDependencyStatus()`, `resolveReady()`.
+- **Tầng REST API (`apps/orchestrator/src/routes/tasks.ts`)**:
+  - `GET /tasks/ready` & `GET /api/tasks/ready`: Trả về HTTP 200 `{ data: TaskWithDependencies[] }` chứa các task đủ điều kiện dependencies. Hỗ trợ query params: `feature_id`, `phase`, `autoTransition`, `limit`.
+  - `GET /tasks/:id/dependency-status` & `GET /api/tasks/:id/dependency-status`: Trả về HTTP 200 `{ data: TaskDependencyStatus }` phân tích chi tiết phụ thuộc của task cụ thể; trả về 404 nếu không tìm thấy task.
+  - `POST /tasks/resolve-ready` & `POST /api/tasks/resolve-ready`: Kích hoạt giải quyết phụ thuộc, chuyển đổi các task `TODO` đủ điều kiện sang `READY` và trả về danh sách task `READY`.
+- **Dependencies**: Không thêm bất kỳ dependency bên ngoài nào mới.
+
+

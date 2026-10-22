@@ -5,6 +5,8 @@ import {
   TaskParamsSchema,
   TaskPatchBodySchema,
   TaskTransitionBodySchema,
+  TaskReadyQuerySchema,
+  TaskResolveReadyBodySchema,
 } from '../types.js';
 import { AppError } from '@ai-orchestrator/shared';
 
@@ -26,6 +28,27 @@ export const taskRoutes: FastifyPluginAsync<TaskRoutesOptions> = async (fastify,
   fastify.get('/tasks', handleList);
   fastify.get('/api/tasks', handleList);
 
+  // GET /tasks/ready & GET /api/tasks/ready (ORC-002: Danh sách task READY)
+  const handleGetReady = async (request: FastifyRequest) => {
+    const query = TaskReadyQuerySchema.parse(request.query ?? {});
+    const { autoTransition, limit, ...filter } = query;
+    const readyTasks = taskService.getReadyTasks(filter, { autoTransition, limit });
+    return { data: readyTasks };
+  };
+
+  fastify.get('/tasks/ready', handleGetReady);
+  fastify.get('/api/tasks/ready', handleGetReady);
+
+  // POST /tasks/resolve-ready & POST /api/tasks/resolve-ready (ORC-002: Resolve and auto-transition to READY)
+  const handleResolveReady = async (request: FastifyRequest) => {
+    const body = TaskResolveReadyBodySchema.parse(request.body ?? request.query ?? {});
+    const readyTasks = taskService.resolveReady(body);
+    return { data: readyTasks };
+  };
+
+  fastify.post('/tasks/resolve-ready', handleResolveReady);
+  fastify.post('/api/tasks/resolve-ready', handleResolveReady);
+
   // GET /tasks/:id
   const handleGetById = async (request: FastifyRequest) => {
     const params = TaskParamsSchema.parse(request.params);
@@ -35,6 +58,16 @@ export const taskRoutes: FastifyPluginAsync<TaskRoutesOptions> = async (fastify,
 
   fastify.get('/tasks/:id', handleGetById);
   fastify.get('/api/tasks/:id', handleGetById);
+
+  // GET /tasks/:id/dependency-status (ORC-002: Tình trạng dependencies của 1 task)
+  const handleDependencyStatus = async (request: FastifyRequest) => {
+    const params = TaskParamsSchema.parse(request.params);
+    const status = taskService.getDependencyStatus(params.id);
+    return { data: status };
+  };
+
+  fastify.get('/tasks/:id/dependency-status', handleDependencyStatus);
+  fastify.get('/api/tasks/:id/dependency-status', handleDependencyStatus);
 
   // PATCH /tasks/:id
   const handlePatchById = async (request: FastifyRequest) => {
