@@ -13,7 +13,7 @@ Trạng thái: `TODO` | `IN_PROGRESS` | `DONE` | `FAILED` | `BLOCKED`
 | TSK-001 | DONE | 1 | 4030e2c | Hoàn thành lúc 2026-10-23 01:21 +07:00 |
 | TSK-002 | DONE | 1 | 190b43f | Hoàn thành lúc 2026-10-23 01:36 +07:00 |
 | TSK-003 | DONE | 1 | 2ceab76 | Hoàn thành lúc 2026-10-23 01:53 +07:00 |
-| TSK-004 | TODO | 0 | | |
+| TSK-004 | DONE | 1 | 13a1d95 | Hoàn thành lúc 2026-10-23 02:14 +07:00 |
 | TSK-005 | TODO | 0 | | |
 | TSK-006 | TODO | 0 | | |
 | TSK-007 | TODO | 0 | | |
