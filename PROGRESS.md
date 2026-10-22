@@ -9,7 +9,7 @@ Trạng thái: `TODO` | `IN_PROGRESS` | `DONE` | `FAILED` | `BLOCKED`
 | FND-003 | DONE | 1 | 21e08c0 | Hoàn thành lúc 2026-10-23 00:30 +07:00 |
 | FND-004 | DONE | 1 | fa1c5b4 | Hoàn thành lúc 2026-10-23 00:40 +07:00 |
 | FND-005 | DONE | 1 | 3e47b64 | Hoàn thành lúc 2026-10-23 00:53 +07:00 |
-| FND-006 | TODO | 0 | | |
+| FND-006 | DONE | 1 | 8c9a2fb | Hoàn thành lúc 2026-10-23 01:08 +07:00 |
 | TSK-001 | TODO | 0 | | |
 | TSK-002 | TODO | 0 | | |
 | TSK-003 | TODO | 0 | | |
