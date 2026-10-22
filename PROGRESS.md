@@ -24,7 +24,7 @@ Trạng thái: `TODO` | `IN_PROGRESS` | `DONE` | `FAILED` | `BLOCKED`
 | AGY-005 | DONE | 1 | a34e607 | Hoàn thành lúc 2026-10-23 04:37 +07:00 |
 | AGY-006 | DONE | 1 | b10bee9 | Hoàn thành lúc 2026-10-23 04:56 +07:00 |
 | AGY-007 | DONE | 1 | 7668971 | Hoàn thành lúc 2026-10-23 05:14 +07:00 |
-| AGY-008 | TODO | 0 | | |
+| AGY-008 | DONE | 1 | 5de79cc | Hoàn thành lúc 2026-10-23 05:31 +07:00 |
 | ORC-001 | TODO | 0 | | |
 | ORC-002 | TODO | 0 | | |
 | ORC-003 | TODO | 0 | | |
