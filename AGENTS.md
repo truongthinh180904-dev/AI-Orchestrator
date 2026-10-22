@@ -10,7 +10,7 @@
 1. Đọc `AGENTS.md`, `ROADMAP.md`, `PROGRESS.md`, và các `SKILL-*.md` liên quan.
 2. Chọn task: trạng thái `TODO`, mọi dependency đã `DONE`, thứ tự ID trong ROADMAP. Đặt `IN_PROGRESS`.
 3. Kiểm tra `git status`: nếu có thay đổi chưa commit không thuộc task → dừng, ghi `BLOCKED`.
-4. Tạo/checkout nhánh `agy/<task-id>-<slug>`.
+4. Làm việc trên nhánh `dev` (chưa ở đó thì `git checkout dev`). KHÔNG tạo nhánh mới cho từng task; mỗi task là 1 commit trên `dev`. Báo cáo nghiệm thu đặt ở `reports/<task-id>.md`.
 5. Viết test trước hoặc cùng lúc với code (xem `SKILL-testing.md`).
 6. Chạy: `pnpm lint && pnpm typecheck && pnpm test` (và `pnpm build` nếu task chạm build). Phải **exit code 0**.
 7. Kiểm tra từng dòng "Nghiệm thu" của task, ghi bằng chứng (lệnh + kết quả) vào `reports/<task-id>.md`.

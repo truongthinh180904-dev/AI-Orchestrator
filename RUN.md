@@ -2,58 +2,47 @@
 
 ## 1. Chuẩn bị (1 lần)
 ```bash
-mkdir -p ~/projects/orchestrator && cd ~/projects/orchestrator
-git init
-# copy vào thư mục này: AGENTS.md ROADMAP.md PROGRESS.md SKILL-*.md RUN.md
-mkdir -p reports && touch DECISIONS.md
-git add -A && git commit -m "chore: add agent instructions"
+cd ~/projects/orchestrator
+# thư mục phải có: AGENTS.md ROADMAP.md PROGRESS.md SKILL-*.md RUN.md run-agy.sh
+mkdir -p reports logs && touch DECISIONS.md
+chmod +x run-agy.sh
+git add -A
+git commit -m "chore: update agent rules and runner"
+git branch --show-current     # phải in ra: dev
 ```
+Nếu chưa phải `dev`: `git branch -m dev`.
 
-## 2. Prompt cố định cho mỗi lần chạy (`-p`)
-```
-Đọc AGENTS.md rồi làm đúng theo đó. Đọc ROADMAP.md, PROGRESS.md và các SKILL-*.md liên quan.
-Chọn task TODO kế tiếp có mọi dependency DONE, làm đúng 1 task, chạy kiểm tra thật, commit, cập nhật PROGRESS.md.
-Không hỏi lại người dùng; mơ hồ thì tự chọn phương án an toàn và ghi vào DECISIONS.md.
-Dòng cuối: RESULT: DONE|FAILED|BLOCKED <task-id>.
-```
+## 2. Cờ AGY đã dùng
+| Cờ | Tác dụng |
+|---|---|
+| `-p` | chạy 1 prompt không tương tác (script tự thêm) |
+| `--dangerously-skip-permissions` | tự duyệt mọi quyền, không hỏi lại |
+| `--print-timeout 2000s` | AGY tự dừng nếu 1 lượt quá ~33 phút |
 
-## 3. Vòng lặp chạy tự động (`run-agy.sh`)
-> Điền đúng executable/cờ AGY của bạn (đã test NDJSON + quyền tự chạy không hỏi). Ở đây chỉ giả định `-p`.
+Giữ `--output-format` ở mặc định `text` để script đọc được dòng `RESULT:`.
+Đổi cờ: `AGY_FLAGS="..." ./run-agy.sh`. Có thể thêm `--model <tên>` (xem `agy models`) hoặc `--effort medium` để tiết kiệm quota.
+
+> Cờ `--dangerously-skip-permissions` cho AGY chạy mọi lệnh mà không hỏi. Chỉ chạy trong thư mục dự án riêng, không chứa dữ liệu quan trọng khác.
+
+## 3. Chạy thử 1 lượt
 ```bash
-#!/usr/bin/env bash
-set -u
-AGY_BIN="${AGY_BIN:-agy}"
-MAX_RUNS="${MAX_RUNS:-8}"          # MVP: Milestone A ≈ 14 task; chỉnh theo ý
-STOP_AFTER="${STOP_AFTER:-AGY-008}" # dừng sau task này để bạn kiểm tra
-PROMPT="$(cat <<'EOF'
-Đọc AGENTS.md rồi làm đúng theo đó. Đọc ROADMAP.md, PROGRESS.md và các SKILL-*.md liên quan.
-Chọn task TODO kế tiếp có mọi dependency DONE, làm đúng 1 task, chạy kiểm tra thật, commit, cập nhật PROGRESS.md.
-Không hỏi lại người dùng; mơ hồ thì tự chọn phương án an toàn và ghi vào DECISIONS.md.
-Dòng cuối: RESULT: DONE|FAILED|BLOCKED <task-id>.
-EOF
-)"
-mkdir -p logs
-for i in $(seq 1 "$MAX_RUNS"); do
-  LOG="logs/run-$(date +%Y%m%d-%H%M%S)-$i.log"
-  echo "== Run $i → $LOG"
-  "$AGY_BIN" -p "$PROMPT" 2>&1 | tee "$LOG"
-  LAST="$(grep -E '^RESULT:' "$LOG" | tail -1)"
-  echo "$LAST"
-  case "$LAST" in
-    *BLOCKED*) echo "Dừng: BLOCKED"; break;;
-    *"DONE $STOP_AFTER"*) echo "Đã tới mốc $STOP_AFTER"; break;;
-    "") echo "Không có RESULT, dừng để kiểm tra"; break;;
-  esac
-done
+MAX_RUNS=1 ./run-agy.sh
 ```
-Chạy: `chmod +x run-agy.sh && caffeinate -i ./run-agy.sh` (`caffeinate` giữ Mac không ngủ).
+Kiểm tra: không bị hỏi lại, `PROGRESS.md` cập nhật, có commit mới trên `dev`, log có `RESULT: DONE <task-id>`.
 
-## 4. Thứ tự khuyến nghị
-1. Chạy tới **AGY-008** (Milestone A) → bạn kiểm tra `PROGRESS.md`, `reports/`, chạy `pnpm test`.
-2. Đặt `STOP_AFTER=ORC-008` cho Milestone B, rồi QLT → REL → UI → OPS.
-3. Task `FAILED/BLOCKED`: đọc `reports/<task-id>.md` + `logs/`, sửa ROADMAP hoặc đổi `TODO` rồi chạy tiếp.
+## 4. Chạy xuyên đêm
+```bash
+tmux new -s agy
+STOP_AT_HOUR=7 caffeinate -i ./run-agy.sh
+```
+(Thoát tmux mà vẫn chạy: `Ctrl+b` rồi `d`; vào lại: `tmux attach -t agy`.)
 
-## 5. Lưu ý
-- Chạy trong repo sạch; script dừng nếu `BLOCKED` do working tree bẩn.
-- Không đưa API key vào prompt/log; để trong `.env`.
+Biến chỉnh được: `COOLDOWN` (giây nghỉ giữa lượt, mặc định 180), `MAX_RUNS`, `STOP_AFTER` (vd `AGY-008`), `MAX_LOAD_PER_CORE`, `MIN_FREE_MEM_PCT`, `QUOTA_BACKOFF`.
+
+Dừng an toàn: `touch STOP` trong thư mục dự án.
+Theo dõi: `tail -f logs/orchestrator.log`.
+
+## 5. Sau khi chạy
+- Xem `PROGRESS.md`, `reports/`, `git log dev`, `logs/`.
+- Task `FAILED/BLOCKED`: đọc `reports/<task-id>.md` + log tương ứng, sửa rồi đặt lại `TODO`.
 - Soak test dài giờ chỉ bật sau khi OPS-007 pass.
