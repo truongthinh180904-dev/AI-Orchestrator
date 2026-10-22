@@ -3,9 +3,6 @@ import {
   TaskFilterSchema,
   UpdateTaskInputSchema,
   FeatureFilterSchema,
-  type TaskWithDependencies,
-  type Feature,
-  type ValidationReport,
   type Env,
 } from '@ai-orchestrator/shared';
 import type Database from 'better-sqlite3';
@@ -46,34 +43,12 @@ export const FeatureParamsSchema = z.object({
 });
 export type FeatureParamsInput = z.infer<typeof FeatureParamsSchema>;
 
-export interface ImportDryRunResult {
-  dryRun: true;
-  valid: boolean;
-  summary: {
-    tasksCount: number;
-    featuresCount: number;
-    errorsCount: number;
-    warningsCount: number;
-  };
-  report: ValidationReport;
-  preview: {
-    tasks: unknown[];
-    features: unknown[];
-  };
-}
-
-export interface ImportCommitResult {
-  dryRun: false;
-  valid: true;
-  imported: {
-    tasksCount: number;
-    featuresCount: number;
-  };
-  tasks: TaskWithDependencies[];
-  features: Feature[];
-}
-
-export type ImportExecutionResult = ImportDryRunResult | ImportCommitResult;
+export type {
+  ImportSummary,
+  ImportDryRunResult,
+  ImportCommitResult,
+  ImportExecutionResult,
+} from '@ai-orchestrator/shared';
 
 export interface BuildServerOptions {
   db: Database.Database;

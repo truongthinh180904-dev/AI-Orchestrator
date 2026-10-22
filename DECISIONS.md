@@ -230,3 +230,26 @@
 - **Xử lý lỗi tập trung (Error Handling)**:
   - Bắt và chuẩn hóa `AppError` thành mã HTTP tương ứng (404 cho `NOT_FOUND`, 409 cho `ALREADY_EXISTS`/`DUPLICATE`, 400 cho `VALIDATION_ERROR`/`CIRCULAR_DEPENDENCY`/`FOREIGN_KEY_VIOLATION`/`IMPORT_VALIDATION_FAILED`).
   - Định dạng phản hồi chuẩn hóa `{ error: { code, message, context } }` và `{ data: ... }` khi thành công.
+
+
+## TSK-007: UI chọn repo + preview import, nút Xác nhận/Hủy
+- **Kiến trúc Next.js App Router theo SKILL-nextjs-dashboard.md**:
+  - `apps/dashboard`: Next.js 15 (App Router) + React 19 + TypeScript strict.
+  - Phân tách vai trò rõ ràng: Dashboard chỉ hiển thị và điều khiển thao tác; toàn bộ nghiệp vụ kiểm tra và lưu trữ nằm ở Orchestrator API.
+  - `apps/dashboard/src/lib/api.ts`: API client duy nhất cho toàn bộ dashboard, lấy base URL từ biến môi trường `NEXT_PUBLIC_ORCH_URL` (hoặc fallback `http://127.0.0.1:3000`). Mọi lỗi phản hồi từ API được unwrap chuẩn hóa thành `AppError` kèm `code`, `message`, `context`.
+  - Kiểu dữ liệu (`ImportDryRunResult`, `ImportCommitResult`, `TaskWithDependencies`, `Feature`, v.v.) được định nghĩa tập trung trong `packages/shared/src/models/import.ts` và dùng chung toàn monorepo.
+- **Dependencies mới**:
+  - `next@15.1.7`, `react@19`, `react-dom@19` trong `apps/dashboard` để phục vụ Dashboard UI theo quy định tại `AGENTS.md`.
+  - `@testing-library/react` và `happy-dom` trong `apps/dashboard` (devDependencies) để kiểm thử component UI nhanh chóng mà không cần trình duyệt thật.
+- **Thiết kế Components**:
+  - `RepoSelector`: Hỗ trợ người dùng nhập đường dẫn repository (`.` mặc định) và lựa chọn linh hoạt nguồn file: đường dẫn file máy chủ (`filePath`), upload file (`fileUpload` qua multipart FormData), hoặc nhập trực tiếp nội dung CSV (`rawCsv`).
+  - `ImportPreview`: Hiển thị huy hiệu trạng thái (`HỢP LỆ (READY TO COMMIT)` hoặc `KHÔNG HỢP LỆ (HAS ERRORS)`), 4 thẻ thống kê số lượng (Tasks, Features, Errors, Warnings), bảng danh sách lỗi chi tiết nếu có (Sheet, Dòng, Cột, Mã lỗi, Thông báo), và bảng xem trước các Tasks kèm quan hệ phụ thuộc (`dependencies`) và Features.
+  - `ImportWorkflow`: Điều phối 3 bước luồng thao tác người dùng:
+    - Nút "Xem trước (Preview Import)": Gọi API dry-run, kích hoạt hiển thị `ImportPreview`.
+    - Nút "Xác nhận Nhập (Confirm Import)": Chỉ kích hoạt khi bản xem trước hợp lệ (`valid: true`) và không có lỗi; bị vô hiệu hóa (`disabled`) khi chưa có preview, preview có lỗi, hoặc đang thực thi (`isLoading`).
+    - Nút "Hủy bỏ (Reset)": Đưa giao diện về trạng thái ban đầu, xóa bỏ dữ liệu xem trước và thông báo lỗi.
+    - Hiển thị banner lỗi đỏ khi API thất bại và banner thành công xanh khi hoàn tất import.
+- **Chiến lược Test & Nghiệm thu**:
+  - 11 unit tests cho `ApiClient` với các kịch bản JSON, multipart FormData, xử lý lỗi mạng và unwrap `AppError`.
+  - 11 component tests với `@testing-library/react` mô phỏng đầy đủ tương tác người dùng: nhập form, chuyển tab CSV, kích hoạt preview, kiểm tra trạng thái disabled của nút Xác nhận khi có lỗi, và luồng commit thành công.
+  - 5 acceptance tests trong `test/tsk-007.test.ts` khởi động máy chủ Fastify và SQLite in-memory thật, xác thực rằng người dùng thao tác qua UI client thực sự preview được file mẫu, xác nhận dry-run không làm thay đổi DB, và xác nhận thao tác commit ghi nhận chính xác 100% dữ liệu vào SQLite.
