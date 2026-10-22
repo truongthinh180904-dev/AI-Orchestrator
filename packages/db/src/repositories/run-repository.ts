@@ -5,6 +5,7 @@ import {
   type CreateRunInput,
   type UpdateRunInput,
   type RunStatus,
+  type RunFilter,
   RunSchema,
   CreateRunInputSchema,
   UpdateRunInputSchema,
@@ -92,6 +93,36 @@ export class RunRepository {
 
   findByTaskId(taskId: string): Run[] {
     const rows = this.findByTaskIdStmt.all(taskId) as Record<string, unknown>[];
+    return rows.map(rowToRun);
+  }
+
+  findAll(filter?: RunFilter): Run[] {
+    const conditions: string[] = [];
+    const values: unknown[] = [];
+
+    const taskId = filter?.taskId ?? filter?.task_id;
+    if (taskId) {
+      conditions.push('task_id = ?');
+      values.push(taskId);
+    }
+    if (filter?.status) {
+      conditions.push('status = ?');
+      values.push(filter.status);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    let sql = `SELECT * FROM runs ${whereClause} ORDER BY started_at DESC`;
+
+    if (filter?.limit !== undefined) {
+      sql += ' LIMIT ?';
+      values.push(filter.limit);
+      if (filter?.offset !== undefined) {
+        sql += ' OFFSET ?';
+        values.push(filter.offset);
+      }
+    }
+
+    const rows = this.db.prepare(sql).all(...values) as Record<string, unknown>[];
     return rows.map(rowToRun);
   }
 

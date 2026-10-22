@@ -6,10 +6,13 @@ import type { BuildServerOptions } from './types.js';
 import { TaskService } from './services/task-service.js';
 import { FeatureService } from './services/feature-service.js';
 import { ImportService } from './services/import-service.js';
+import { RunService } from './services/run-service.js';
+import { createExecutionManager } from './adapters/execution-manager.js';
 import { healthRoutes } from './routes/health.js';
 import { taskRoutes } from './routes/tasks.js';
 import { featureRoutes } from './routes/features.js';
 import { importRoutes } from './routes/import.js';
+import { runRoutes } from './routes/runs.js';
 
 export async function buildServer(options: BuildServerOptions): Promise<FastifyInstance> {
   const { db, logger = false } = options;
@@ -32,6 +35,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       switch (error.code) {
         case 'TASK_NOT_FOUND':
         case 'FEATURE_NOT_FOUND':
+        case 'RUN_NOT_FOUND':
         case 'FILE_NOT_FOUND':
           statusCode = 404;
           break;
@@ -51,6 +55,9 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
         case 'MISSING_SHEET':
         case 'UNSUPPORTED_FILE_TYPE':
         case 'EMPTY_WORKBOOK':
+        case 'UNREGISTERED_REPOSITORY':
+        case 'INVALID_WORKING_DIRECTORY':
+        case 'INVALID_PAYLOAD':
           statusCode = 400;
           break;
         default:
@@ -110,11 +117,22 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   const featureService = new FeatureService(db);
   const importService = new ImportService(db);
 
+  const executionManager =
+    options.executionManager ??
+    createExecutionManager({ repositoryRegistry: options.repositoryRegistry });
+  const runService = new RunService({
+    db,
+    executionManager,
+    repositoryRegistry: options.repositoryRegistry,
+    config: options.config,
+  });
+
   // Register routes
   await server.register(healthRoutes);
   await server.register(taskRoutes, { taskService });
   await server.register(featureRoutes, { featureService });
   await server.register(importRoutes, { importService });
+  await server.register(runRoutes, { runService });
 
   return server;
 }

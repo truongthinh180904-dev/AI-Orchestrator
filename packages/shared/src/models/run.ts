@@ -58,3 +58,39 @@ export const UpdateRunInputSchema = z.object({
 
 export type UpdateRunInput = z.input<typeof UpdateRunInputSchema>;
 export type UpdateRunData = z.output<typeof UpdateRunInputSchema>;
+
+export const RunCommandOverrideSchema = z.object({
+  exe: z.string().min(1).optional(),
+  args: z.array(z.string()).optional(),
+  cwd: z.string().optional(),
+  env: z.record(z.string(), z.string()).optional(),
+  extraEnvWhitelist: z.array(z.string()).optional(),
+  detached: z.boolean().optional(),
+});
+export type RunCommandOverride = z.infer<typeof RunCommandOverrideSchema>;
+
+export const CreateRunApiSchema = z.object({
+  taskId: z.string().min(1, 'Task ID is required'),
+  command: RunCommandOverrideSchema.optional(),
+  timeoutMs: z.number().int().positive().optional(),
+  gracePeriodMs: z.number().int().positive().optional(),
+  branch: z.string().optional(),
+});
+export type CreateRunApiInput = z.infer<typeof CreateRunApiSchema>;
+
+export const StopRunApiSchema = z.object({
+  gracePeriodMs: z.number().int().positive().optional(),
+  signal: z.enum(['SIGTERM', 'SIGINT', 'SIGKILL']).optional(),
+  reason: z.string().optional(),
+});
+export type StopRunApiInput = z.infer<typeof StopRunApiSchema>;
+
+export const RunFilterSchema = z.object({
+  taskId: z.string().optional(),
+  task_id: z.string().optional(),
+  status: RunStatusSchema.optional(),
+  limit: z.number().int().positive().optional(),
+  offset: z.number().int().nonnegative().optional(),
+});
+export type RunFilter = z.infer<typeof RunFilterSchema>;
+

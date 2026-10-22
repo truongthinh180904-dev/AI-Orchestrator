@@ -3,9 +3,17 @@ import {
   TaskFilterSchema,
   UpdateTaskInputSchema,
   FeatureFilterSchema,
+  CreateRunApiSchema,
+  StopRunApiSchema,
+  RunFilterSchema,
+  type CreateRunApiInput,
+  type StopRunApiInput,
+  type RunFilter,
   type Env,
 } from '@ai-orchestrator/shared';
 import type Database from 'better-sqlite3';
+import type { ExecutionManager } from './adapters/execution-manager.js';
+import type { RepositoryRegistry } from './adapters/repository-registry.js';
 
 export const ImportRequestSchema = z.object({
   filePath: z.string().optional(),
@@ -43,6 +51,33 @@ export const FeatureParamsSchema = z.object({
 });
 export type FeatureParamsInput = z.infer<typeof FeatureParamsSchema>;
 
+export const RunParamsSchema = z.object({
+  id: z.string().min(1, 'Run ID is required'),
+});
+export type RunParamsInput = z.infer<typeof RunParamsSchema>;
+
+export const RunStreamQuerySchema = z.object({
+  after_seq: z.coerce.number().int().nonnegative().optional(),
+  live: z
+    .union([z.boolean(), z.string()])
+    .optional()
+    .transform((val) => {
+      if (val === undefined) return true;
+      if (typeof val === 'boolean') return val;
+      return val !== 'false' && val !== '0';
+    }),
+});
+export type RunStreamQueryInput = z.infer<typeof RunStreamQuerySchema>;
+
+export {
+  CreateRunApiSchema,
+  StopRunApiSchema,
+  RunFilterSchema,
+  type CreateRunApiInput,
+  type StopRunApiInput,
+  type RunFilter,
+};
+
 export type {
   ImportSummary,
   ImportDryRunResult,
@@ -54,4 +89,6 @@ export interface BuildServerOptions {
   db: Database.Database;
   logger?: boolean | Record<string, unknown>;
   config?: Partial<Env>;
+  executionManager?: ExecutionManager;
+  repositoryRegistry?: RepositoryRegistry;
 }

@@ -10,6 +10,7 @@ export default tseslint.config(
       '**/coverage/**',
       'logs/**',
       'reports/**',
+      'fixtures/**',
       'pnpm-lock.yaml',
     ],
   },

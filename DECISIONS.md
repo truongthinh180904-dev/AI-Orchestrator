@@ -413,3 +413,26 @@
   - `ProcessAdapter` nhận tùy chọn `repositoryRegistry`. Trong `spawn()`, nếu registry được cấu hình, gọi `registry.assertCwdValid(command.cwd)`.
   - `ExecutionManager.startRun()` hỗ trợ nhận trực tiếp tham số `worktree?: IsolatedWorktree`, tự động trỏ `command.cwd` vào thư mục worktree và kiểm tra tính hợp lệ trước khi bắt đầu thực thi.
 - **Dependencies**: Không thêm dependency bên ngoài mới (sử dụng thư viện Node.js có sẵn `node:child_process`, `node:fs`, `node:path`, `node:os`, `node:crypto`).
+
+## AGY-007: Worker execution API: POST /runs, GET /runs/:id, GET /runs/:id/stream (SSE), POST /runs/:id/stop — Chạy thử qua API với CLI giả
+- **Vị trí Module**:
+  - `packages/shared/src/models/run.ts`: Bổ sung Zod schemas `CreateRunApiSchema`, `StopRunApiSchema`, `RunFilterSchema`, `RunCommandOverrideSchema` và các types tương ứng.
+  - `packages/db/src/repositories/run-repository.ts`: Bổ sung phương thức `findAll(filter?: RunFilter): Run[]` phục vụ truy vấn danh sách runs theo taskId/status.
+  - `apps/orchestrator/src/types.ts`: Khai báo `RunParamsSchema`, `RunStreamQuerySchema`, mở rộng `BuildServerOptions` (`executionManager`, `repositoryRegistry`), và re-export các schema từ `@ai-orchestrator/shared`.
+  - `apps/orchestrator/src/services/run-service.ts`: Triển khai lớp `RunService` bao bọc toàn bộ logic điều khiển lần chạy (`startRun`, `getRun`, `listRuns`, `stopRun`, `getEvents`).
+  - `apps/orchestrator/src/routes/runs.ts`: Khai báo plugin Fastify chứa 5 endpoints REST/SSE: `POST /runs`, `GET /runs`, `GET /runs/:id`, `GET /runs/:id/stream`, `POST /runs/:id/stop` (kèm alias `/api/runs*`).
+  - `apps/orchestrator/src/server.ts`: Đăng ký `runRoutes`, tiêm `RunService`, bổ sung ánh xạ mã lỗi HTTP (`RUN_NOT_FOUND` → 404; `UNREGISTERED_REPOSITORY`, `INVALID_WORKING_DIRECTORY`, `INVALID_PAYLOAD` → 400).
+  - `fixtures/mock-agy-cli.cjs`: Script Node.js giả lập AGY worker phát NDJSON (`status`, `stdout`, `result SUCCESS/ERROR`, `hang`, `stubborn`, `crash`, `invalid_output`) phục vụ kiểm thử tích hợp và kiểm thử nghiệm thu.
+- **Hiện thực Server-Sent Events (SSE) theo chuẩn**:
+  - Endpoint `GET /runs/:id/stream`: thiết lập các header SSE chuẩn `Content-Type: text/event-stream`, `Cache-Control: no-cache, no-transform`, `Connection: keep-alive`, `X-Accel-Buffering: no`.
+  - Truyền lại toàn bộ lịch sử event từ SQLite DB trước (`after_seq` / header `Last-Event-ID`).
+  - Đối với tiến trình đang hoạt động: lắng nghe sự kiện phát sinh từ `ExecutionStreamRecorder`, gửi ngay lập tức tới client theo định dạng SSE chuẩn `id: <seq>\nevent: <type>\ndata: <json>\n\n`.
+  - Gửi heartbeat comment định kỳ 15 giây (`: heartbeat\n\n`) để duy trì kết nối chống timeout qua reverse proxy theo đúng `SKILL-node-typescript.md`.
+  - Dọn dẹp listener và timer khi client ngắt kết nối (`request.raw.on('close')`, `reply.raw.on('close')`).
+  - Khi lần chạy kết thúc, tự động phát sự kiện hoàn tất `event: done` và đóng luồng kết nối `reply.raw.end()`.
+- **Dừng tiến trình theo yêu cầu (`POST /runs/:id/stop`)**:
+  - Tìm lần chạy trong hệ thống; nếu không tìm thấy trả về 404 `RUN_NOT_FOUND`.
+  - Nếu lần chạy đang hoạt động trong `ExecutionManager`: gọi `stop(id, options)` kích hoạt chu trình tuần tự SIGTERM → grace period → SIGKILL và cập nhật trạng thái trong DB thành `CANCELLED`.
+  - Nếu lần chạy đã kết thúc từ trước: trả về an toàn `{ data: { stopped: false, run } }` mà không gây lỗi hay crash server.
+- **Dependencies**: Không thêm dependency ngoài mới (sử dụng Fastify và Node.js native streams có sẵn).
+
