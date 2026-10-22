@@ -6,6 +6,8 @@ import {
   type CreateEventInput,
   type ProcessExitResult,
   type RunStatus,
+  type RunResolutionResult,
+  resolveRunStatus,
   STANDARD_EVENT_TYPES,
 } from '@ai-orchestrator/shared';
 import { type ProcessHandle } from './process-adapter.js';
@@ -40,10 +42,14 @@ export interface ExecutionStreamOptions {
   recordParsedEvents?: boolean;
   recordLifecycle?: boolean;
   initialSeq?: number;
+  isTimeout?: boolean;
+  isCancelled?: boolean;
 }
 
 export interface ExecutionCompletionResult extends ProcessExitResult {
   events: EventRecord[];
+  status: RunStatus;
+  resolution: RunResolutionResult;
 }
 
 export class ExecutionStreamRecorder extends EventEmitter {
@@ -56,6 +62,9 @@ export class ExecutionStreamRecorder extends EventEmitter {
   private readonly _recordParsedEvents: boolean;
   private readonly _recordLifecycle: boolean;
 
+  private _isTimeout: boolean;
+  private _isCancelled: boolean;
+  private _resolution: RunResolutionResult | null = null;
   private _seq: number;
   private _ndjsonParser: NdjsonParser;
   private _stderrDecoder = new StringDecoder('utf8');
@@ -76,6 +85,8 @@ export class ExecutionStreamRecorder extends EventEmitter {
     this._recordRawStderr = options.recordRawStderr ?? true;
     this._recordParsedEvents = options.recordParsedEvents ?? true;
     this._recordLifecycle = options.recordLifecycle ?? true;
+    this._isTimeout = options.isTimeout ?? false;
+    this._isCancelled = options.isCancelled ?? false;
 
     this._seq = options.initialSeq ?? this._eventRepo.getNextSeq(this.runId) - 1;
 
@@ -104,6 +115,18 @@ export class ExecutionStreamRecorder extends EventEmitter {
 
   public get handle(): ProcessHandle {
     return this._handle;
+  }
+
+  public get resolution(): RunResolutionResult | null {
+    return this._resolution;
+  }
+
+  public markTimeout(): void {
+    this._isTimeout = true;
+  }
+
+  public markCancelled(): void {
+    this._isCancelled = true;
   }
 
   public waitForCompletion(): Promise<ExecutionCompletionResult> {
@@ -210,9 +233,19 @@ export class ExecutionStreamRecorder extends EventEmitter {
         });
       }
 
+      const allEvents = this.getEvents();
+      const resolution = resolveRunStatus({
+        exitCode,
+        signal,
+        events: allEvents,
+        isTimeout: this._isTimeout,
+        isCancelled: this._isCancelled,
+      });
+      this._resolution = resolution;
+
       if (this._runRepo) {
         try {
-          this._runRepo.updateStatus(this.runId, exitCode === 0 ? 'SUCCESS' : 'ERROR', {
+          this._runRepo.updateStatus(this.runId, resolution.status, {
             exit_code: exitCode,
             finished_at: new Date().toISOString(),
           });
@@ -222,14 +255,15 @@ export class ExecutionStreamRecorder extends EventEmitter {
       }
 
       this._completed = true;
-      const allEvents = this.getEvents();
-      this.emit('finish', allEvents);
+      this.emit('finish', allEvents, resolution);
 
       this._resolveCompletion({
         exitCode,
         signal,
         durationMs,
         events: allEvents,
+        status: resolution.status,
+        resolution,
       });
     });
   }

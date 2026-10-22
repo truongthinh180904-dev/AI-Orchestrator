@@ -164,11 +164,13 @@ describe('AGY-003 Acceptance Tests: Chuẩn hóa event stream + lưu bảng even
         task_id: 'TASK-AGY-003',
       });
 
-      const handle = adapter.spawn(
-        'node',
-        ['-e', 'console.log("Success message 1"); console.log("Success message 2");'],
-        process.cwd(),
-      );
+      const script = `
+        console.log("Success message 1");
+        console.log("Success message 2");
+        console.log(JSON.stringify({ type: "result", status: "SUCCESS" }));
+      `;
+
+      const handle = adapter.spawn('node', ['-e', script], process.cwd());
 
       const recorder = attachExecutionStream({
         runId: 'run-normal-exit',
@@ -184,7 +186,11 @@ describe('AGY-003 Acceptance Tests: Chuẩn hóa event stream + lưu bảng even
 
       // Truy vấn trực tiếp từ bảng events trong SQLite
       const logs = eventRepo.getRawLogs('run-normal-exit');
-      expect(logs.map((l) => l.text)).toEqual(['Success message 1', 'Success message 2']);
+      expect(logs.map((l) => l.text)).toEqual([
+        'Success message 1',
+        'Success message 2',
+        JSON.stringify({ type: 'result', status: 'SUCCESS' }),
+      ]);
 
       const run = runRepo.getById('run-normal-exit');
       expect(run?.status).toBe('SUCCESS');

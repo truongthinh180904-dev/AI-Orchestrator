@@ -323,3 +323,34 @@
   - Bảng `events` liên kết khóa ngoại `run_id REFERENCES runs(id) ON DELETE CASCADE`.
   - Khi một bản ghi `runs` bị xóa, các sự kiện liên quan trong `events` tự động được dọn dẹp sạch sẽ nhờ cơ chế `foreign_keys = ON` của SQLite.
 - **Dependencies**: Không thêm dependency bên ngoài mới (sử dụng `better-sqlite3`, `zod`, `node:events`, `node:string_decoder`, `@ai-orchestrator/shared`, `@ai-orchestrator/db`).
+
+## AGY-004: Xử lý exit code + event result → SUCCESS / ERROR / INVALID_OUTPUT
+- **Vị trí Module**:
+  - `packages/shared/src/models/result.ts`: Định nghĩa schema `AgentResultStatusSchema`, `AgentResultPayloadSchema`, các hàm helper `isResultSuccess()`, `findResultEvents()`, kiểu dữ liệu `ResolveRunStatusInput`, `RunResolutionResult`, và hàm cốt lõi `resolveRunStatus()`. Re-export qua `packages/shared/src/models/index.ts` và `@ai-orchestrator/shared`.
+  - `packages/shared/src/models/event.ts`: Bổ sung `RESULT: 'result'` vào hằng số `STANDARD_EVENT_TYPES`.
+  - `apps/orchestrator/src/adapters/execution-stream.ts`: Tích hợp `resolveRunStatus()` vào callback sự kiện `close` của `ExecutionStreamRecorder`, cập nhật chính xác trạng thái trong SQLite `runs` table, và trả về qua `ExecutionCompletionResult`.
+- **Cơ chế Phân giải Trạng thái Run (`resolveRunStatus`)**:
+  - **Quy tắc 1: Người dùng hủy / Timeout**:
+    - Nếu `isCancelled === true` → gán trạng thái `CANCELLED`.
+    - Nếu `isTimeout === true` → gán trạng thái `TIMEOUT`.
+  - **Quy tắc 2: Exit code khác 0 hoặc bị kill bởi signal**:
+    - Nếu `exitCode !== 0 && exitCode !== null` → gán trạng thái `ERROR` (ưu tiên mã thoát thực tế của hệ điều hành, bất kể các sự kiện stream đã in trước đó).
+    - Nếu `exitCode === null` và có `signal` (ví dụ `SIGKILL`, `SIGSEGV`) → gán trạng thái `ERROR`.
+  - **Quy tắc 3: Exit code 0**:
+    - Tìm kiếm sự kiện `result` trong danh sách các sự kiện (`findResultEvents()`).
+    - Nếu **không có sự kiện result** nào trong toàn bộ stream → gán trạng thái `INVALID_OUTPUT` (xử lý tình huống process kết thúc nhưng output rỗng hoặc chỉ có log thường).
+    - Lấy sự kiện `result` cuối cùng (final result). Nếu payload của sự kiện không thỏa mãn Zod schema `AgentResultPayloadSchema` (sai cú pháp, thiếu cả `status` và `success`, sai enum status, hoặc payload không phải object) → gán trạng thái `INVALID_OUTPUT`.
+    - Nếu payload hợp lệ và `isResultSuccess(payload) === true` (chứa `status: 'SUCCESS'` hoặc `success: true`) → gán trạng thái `SUCCESS`.
+    - Nếu payload hợp lệ nhưng `isResultSuccess(payload) === false` (chứa `status: 'ERROR'`, `status: 'FAILED'`, hoặc `success: false`) → gán trạng thái `ERROR` kèm thông điệp lỗi trích xuất từ `message`/`summary`/`error`.
+- **Chuẩn hóa Schemas & Định dạng mềm dẻo**:
+  - `AgentResultStatusSchema` sử dụng `z.preprocess` tự động `trim()` và chuyển thành chữ in hoa (`toUpperCase()`), cho phép chấp nhận các biến thể như `"success"`, `"Success"`, `"error"`, `"failed"`.
+  - Hỗ trợ cả hai dạng báo cáo kết quả: theo trạng thái (`status: 'SUCCESS' | 'ERROR' | 'FAILED'`) hoặc theo cờ boolean (`success: true | false`).
+  - Hỗ trợ giải mã JSON string an toàn nếu payload được lưu dưới dạng chuỗi đã serialize.
+- **Phân định rõ ranh giới: CLI SUCCESS vs Task DONE (ROADMAP item 121)**:
+  - Trạng thái `SUCCESS` ở cấp độ `Run` chỉ biểu thị tiến trình CLI worker đã thực thi xong và phát ra kết quả hợp lệ.
+  - Task nghiệp vụ trong bảng `tasks` tuyệt đối không được tự động chuyển sang `DONE` tại tầng Worker/Adapter này; trạng thái `DONE` của Task chỉ được quyết định sau khi trải qua Quality Gate / Reviewer ở GĐ 3 và GĐ 4.
+- **Mở rộng ExecutionStreamRecorder**:
+  - Thêm phương thức `recorder.markTimeout()` và `recorder.markCancelled()` để chuẩn bị sẵn sàng cho task `AGY-005` (Timeout và Stop).
+  - Thuộc tính getter `recorder.resolution` lưu trữ chi tiết lý do và parsed result.
+  - `ExecutionCompletionResult` mở rộng cung cấp `status: RunStatus` và `resolution: RunResolutionResult`.
+- **Dependencies**: Không thêm dependency bên ngoài mới (sử dụng thư viện có sẵn `zod`, `better-sqlite3`, `@ai-orchestrator/shared`, `@ai-orchestrator/db`).

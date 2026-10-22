@@ -223,4 +223,189 @@ describe('AGY-003: ExecutionStreamRecorder Unit Tests', () => {
     expect(checkpoint).toHaveLength(1);
     expect(checkpoint[0]?.payload).toEqual({ step: 1, note: 'custom mark' });
   });
+
+  describe('AGY-004: Run Status Resolution (SUCCESS, ERROR, INVALID_OUTPUT)', () => {
+    it('sets run status to SUCCESS when process exits 0 with a valid SUCCESS result event', async () => {
+      runRepo.create({
+        id: 'run-res-success',
+        task_id: 'TASK-STREAM',
+      });
+
+      const script = `
+        console.log(JSON.stringify({ type: "result", status: "SUCCESS", summary: "Task finished" }));
+      `;
+
+      const handle = adapter.spawn('node', ['-e', script], process.cwd());
+      const recorder = attachExecutionStream({
+        runId: 'run-res-success',
+        handle,
+        eventRepository: eventRepo,
+        runRepository: runRepo,
+      });
+
+      const completion = await recorder.waitForCompletion();
+      expect(completion.exitCode).toBe(0);
+      expect(completion.status).toBe('SUCCESS');
+      expect(completion.resolution.status).toBe('SUCCESS');
+
+      const runInDb = runRepo.getById('run-res-success');
+      expect(runInDb?.status).toBe('SUCCESS');
+    });
+
+    it('sets run status to ERROR when process exits 0 but result event reports ERROR', async () => {
+      runRepo.create({
+        id: 'run-res-error-event',
+        task_id: 'TASK-STREAM',
+      });
+
+      const script = `
+        console.log(JSON.stringify({ type: "result", status: "ERROR", message: "Step 3 failed" }));
+      `;
+
+      const handle = adapter.spawn('node', ['-e', script], process.cwd());
+      const recorder = attachExecutionStream({
+        runId: 'run-res-error-event',
+        handle,
+        eventRepository: eventRepo,
+        runRepository: runRepo,
+      });
+
+      const completion = await recorder.waitForCompletion();
+      expect(completion.exitCode).toBe(0);
+      expect(completion.status).toBe('ERROR');
+      expect(completion.resolution.status).toBe('ERROR');
+      expect(completion.resolution.reason).toContain('Step 3 failed');
+
+      const runInDb = runRepo.getById('run-res-error-event');
+      expect(runInDb?.status).toBe('ERROR');
+    });
+
+    it('sets run status to ERROR when process exits with non-zero exit code', async () => {
+      runRepo.create({
+        id: 'run-res-error-exit',
+        task_id: 'TASK-STREAM',
+      });
+
+      const script = `
+        process.exit(1);
+      `;
+
+      const handle = adapter.spawn('node', ['-e', script], process.cwd());
+      const recorder = attachExecutionStream({
+        runId: 'run-res-error-exit',
+        handle,
+        eventRepository: eventRepo,
+        runRepository: runRepo,
+      });
+
+      const completion = await recorder.waitForCompletion();
+      expect(completion.exitCode).toBe(1);
+      expect(completion.status).toBe('ERROR');
+
+      const runInDb = runRepo.getById('run-res-error-exit');
+      expect(runInDb?.status).toBe('ERROR');
+    });
+
+    it('sets run status to INVALID_OUTPUT when process exits 0 without emitting any result event', async () => {
+      runRepo.create({
+        id: 'run-res-invalid-no-result',
+        task_id: 'TASK-STREAM',
+      });
+
+      const script = `
+        console.log("Just plain stdout text, no result event");
+      `;
+
+      const handle = adapter.spawn('node', ['-e', script], process.cwd());
+      const recorder = attachExecutionStream({
+        runId: 'run-res-invalid-no-result',
+        handle,
+        eventRepository: eventRepo,
+        runRepository: runRepo,
+      });
+
+      const completion = await recorder.waitForCompletion();
+      expect(completion.exitCode).toBe(0);
+      expect(completion.status).toBe('INVALID_OUTPUT');
+      expect(completion.resolution.status).toBe('INVALID_OUTPUT');
+      expect(completion.resolution.reason).toContain('emitted no result event');
+
+      const runInDb = runRepo.getById('run-res-invalid-no-result');
+      expect(runInDb?.status).toBe('INVALID_OUTPUT');
+    });
+
+    it('sets run status to INVALID_OUTPUT when result event payload is malformed/invalid schema', async () => {
+      runRepo.create({
+        id: 'run-res-invalid-schema',
+        task_id: 'TASK-STREAM',
+      });
+
+      const script = `
+        console.log(JSON.stringify({ type: "result", status: "NON_EXISTENT_STATUS" }));
+      `;
+
+      const handle = adapter.spawn('node', ['-e', script], process.cwd());
+      const recorder = attachExecutionStream({
+        runId: 'run-res-invalid-schema',
+        handle,
+        eventRepository: eventRepo,
+        runRepository: runRepo,
+      });
+
+      const completion = await recorder.waitForCompletion();
+      expect(completion.exitCode).toBe(0);
+      expect(completion.status).toBe('INVALID_OUTPUT');
+
+      const runInDb = runRepo.getById('run-res-invalid-schema');
+      expect(runInDb?.status).toBe('INVALID_OUTPUT');
+    });
+
+    it('sets run status to TIMEOUT when markTimeout is called', async () => {
+      runRepo.create({
+        id: 'run-res-timeout',
+        task_id: 'TASK-STREAM',
+      });
+
+      const handle = adapter.spawn('node', ['-e', 'setTimeout(() => {}, 500)'], process.cwd());
+      const recorder = attachExecutionStream({
+        runId: 'run-res-timeout',
+        handle,
+        eventRepository: eventRepo,
+        runRepository: runRepo,
+      });
+
+      recorder.markTimeout();
+      handle.kill('SIGKILL');
+
+      const completion = await recorder.waitForCompletion();
+      expect(completion.status).toBe('TIMEOUT');
+
+      const runInDb = runRepo.getById('run-res-timeout');
+      expect(runInDb?.status).toBe('TIMEOUT');
+    });
+
+    it('sets run status to CANCELLED when markCancelled is called', async () => {
+      runRepo.create({
+        id: 'run-res-cancelled',
+        task_id: 'TASK-STREAM',
+      });
+
+      const handle = adapter.spawn('node', ['-e', 'setTimeout(() => {}, 500)'], process.cwd());
+      const recorder = attachExecutionStream({
+        runId: 'run-res-cancelled',
+        handle,
+        eventRepository: eventRepo,
+        runRepository: runRepo,
+      });
+
+      recorder.markCancelled();
+      handle.kill('SIGTERM');
+
+      const completion = await recorder.waitForCompletion();
+      expect(completion.status).toBe('CANCELLED');
+
+      const runInDb = runRepo.getById('run-res-cancelled');
+      expect(runInDb?.status).toBe('CANCELLED');
+    });
+  });
 });

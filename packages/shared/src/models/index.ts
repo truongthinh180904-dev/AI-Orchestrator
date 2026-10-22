@@ -6,3 +6,4 @@ export * from './agent-command.js';
 export * from './ndjson.js';
 export * from './run.js';
 export * from './event.js';
+export * from './result.js';

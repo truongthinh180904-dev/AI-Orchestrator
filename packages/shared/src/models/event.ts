@@ -6,6 +6,7 @@ export const STANDARD_EVENT_TYPES = {
   PARSE_ERROR: 'parse_error',
   PROCESS_START: 'process_start',
   PROCESS_EXIT: 'process_exit',
+  RESULT: 'result',
 } as const;
 
 export type StandardEventType = (typeof STANDARD_EVENT_TYPES)[keyof typeof STANDARD_EVENT_TYPES];
