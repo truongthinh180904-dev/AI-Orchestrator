@@ -1,0 +1,2 @@
+id,name,description,required_tasks,integration_tests,release_policy,status
+FEAT-001,Task Management Engine,Quản lý task schema và parser dữ liệu Excel/CSV,"TSK-001, TSK-002",pnpm test,require_all_done,IN_PROGRESS

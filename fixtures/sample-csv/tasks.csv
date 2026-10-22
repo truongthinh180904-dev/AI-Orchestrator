@@ -1,0 +1,3 @@
+id,feature_id,title,description,phase,worker_type,repository,acceptance_criteria,test_commands,priority,max_attempts,timeout_minutes,dependencies,status
+TSK-001,FEAT-001,Schema + model Task/Feature/Dependency,Xây dựng schema Zod và repository class CRUD với SQLite,GĐ 1,agy,.,Migration + test CRUD;Pass all repository unit tests,pnpm test,10,3,30,FND-003,DONE
+TSK-002,FEAT-001,Parser Excel/CSV theo 3 sheet,Parser ExcelJS/PapaParse theo 3 sheet Tasks Features Config,GĐ 1,agy,.,Đọc đúng file mẫu;Pass all test cases,pnpm test,9,3,30,TSK-001,TODO

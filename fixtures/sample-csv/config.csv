@@ -1,0 +1,8 @@
+key,value
+repository,.
+agy_bin,agy
+agy_args,-p
+verify_commands,pnpm lint;pnpm typecheck;pnpm test
+max_attempts,3
+timeout_minutes,30
+max_concurrency,1

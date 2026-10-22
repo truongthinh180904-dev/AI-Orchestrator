@@ -100,3 +100,24 @@
   - Đồng bộ quan hệ nhiều bước (như tạo task kèm dependencies hoặc sync dependencies) được bọc trong `db.transaction(...)` nhằm bảo đảm tính toàn vẹn dữ liệu.
   - Sử dụng batch query dependencies theo danh sách task IDs trong `findAll()` để loại bỏ hoàn toàn vấn đề N+1 query.
   - Bắt lỗi SQLite constraint (`SQLITE_CONSTRAINT_PRIMARYKEY`, `SQLITE_CONSTRAINT_FOREIGNKEY`) và chuyển đổi thành `AppError` tương ứng (`TASK_ALREADY_EXISTS`, `FEATURE_ALREADY_EXISTS`, `DEPENDENCY_ALREADY_EXISTS`, `FOREIGN_KEY_VIOLATION`, `SELF_DEPENDENCY_ERROR`, `TASK_NOT_FOUND`, `FEATURE_NOT_FOUND`).
+
+## TSK-002: Parser Excel/CSV (exceljs/papaparse) theo 3 sheet: Tasks, Features, Config
+- **Dependencies mới**:
+  - `exceljs` (^4.4.0): Phục vụ đọc/ghi file định dạng Excel (`.xlsx`), parse các sheet và cấu trúc cell đa dạng (richText, formulas, hyperlinks, dates).
+  - `papaparse` (^5.7.0) & `@types/papaparse` (^5.5.2): Phục vụ parse dữ liệu định dạng CSV tốc độ cao, hỗ trợ tự động nhận diện delimiter, xử lý quotes và multiline fields.
+  - Vị trí cài đặt: `packages/shared` (`@ai-orchestrator/shared`) để cung cấp khả năng parse dùng chung cho backend Orchestrator, CLI, và các công cụ import.
+- **Cấu trúc Module**:
+  - `packages/shared/src/parser/types.ts`: Định nghĩa kiểu dữ liệu Zod schemas cho `ParsedTaskRow`, `ParsedFeatureRow`, `ParsedConfig`, `ParsedWorkbookResult` cùng bảng tra cứu bí danh tiêu đề cột (`TASK_HEADER_ALIASES`, `FEATURE_HEADER_ALIASES`, `CONFIG_HEADER_ALIASES`) và các hàm tiện ích bóc tách cell/chuỗi/danh sách.
+  - `packages/shared/src/parser/mappers.ts`: Chuẩn hóa tiêu đề cột theo alias tiếng Anh / tiếng Việt (`Mã task`, `Tiêu đề`, `Nghiệm thu`, `Lệnh test`, `Phụ thuộc`, v.v.), map an toàn từng dòng về entity, xử lý giá trị mặc định (`priority: 0`, `max_attempts: 3`, `timeout_minutes: 30`, `status: TODO`).
+  - `packages/shared/src/parser/excel.ts`: `parseExcelWorkbook` đọc từ đường dẫn file hoặc `Buffer`, tìm sheet không phân biệt chữ hoa/thường (`Tasks`, `Features`, `Config`). Cung cấp `createSampleExcelWorkbook` tạo workbook mẫu.
+  - `packages/shared/src/parser/csv.ts`: `parseCsvSheet`, `parseCsvFiles`, `parseCsvDirectory` hỗ trợ đọc từ thư mục chứa các file `tasks.csv`, `features.csv`, `config.csv` hoặc từ đối tượng key-value mã nguồn CSV. Cung cấp `createSampleCsvFiles` tạo nội dung CSV mẫu.
+  - `packages/shared/src/parser/index.ts`: Hàm `parseImportFile` thống nhất, tự động nhận biết định dạng nguồn (đường dẫn `.xlsx`/`.csv`/thư mục, Buffer với filename hint, hoặc đối tượng files) và trả về kết quả cấu trúc chuẩn `ParsedWorkbookResult`.
+- **Hỗ trợ định dạng Config linh hoạt**:
+  - Format 1 (Key-Value): Dòng có 2 cột `key` và `value` (hoặc `setting` và `val`), gom tất cả các cặp khóa - giá trị.
+  - Format 2 (Horizontal Row): Dòng đầu là các tiêu đề cột thuộc tính (`repository`, `agy_bin`, `agy_args`, `verify_commands`, ...), dòng kế là giá trị.
+  - Các cấu hình ngoài danh mục chuẩn tự động được lưu vào `settings: Record<string, unknown>`.
+- **An toàn & Kiểm soát lỗi**:
+  - Bắt buộc phải có sheet/file `Tasks` (nếu thiếu throw `AppError('MISSING_SHEET')`).
+  - File không tồn tại throw `AppError('FILE_NOT_FOUND')`, thư mục không tồn tại throw `AppError('DIRECTORY_NOT_FOUND')`, định dạng không hỗ trợ throw `AppError('UNSUPPORTED_FILE_TYPE')`, file hỏng/rỗng throw `AppError('INVALID_FILE_FORMAT')`/`AppError('EMPTY_FILE')`.
+- **Fixtures mẫu**:
+  - Tạo `fixtures/sample-tasks.xlsx` và `fixtures/sample-csv/` (`tasks.csv`, `features.csv`, `config.csv`) làm file mẫu phục vụ nghiệm thu và kiểm thử tự động.
