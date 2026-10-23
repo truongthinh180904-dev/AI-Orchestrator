@@ -748,3 +748,14 @@
 - Tích hợp `QualityGateService` vào `TaskScheduler`: khi AGY worker hoàn tất thành công, scheduler gọi `verifyAndTransitionTask` để kiểm định đa tầng và tự động quyết định `DONE` hoặc `FAILED`.
 - REST API cung cấp `/quality/gate/evaluate`, `/quality/gate/:id`, `/quality/gate/tasks/:id/latest`, `/quality/gate/tasks/:id/history`, `/tasks/:id/verify` (hỗ trợ tiền tố `/api`).
 - Không thêm dependency bên ngoài mới nào; tuân thủ hoàn toàn quy chuẩn TypeScript strict và SQLite.
+
+## REL-001: Xác định feature và tập task bắt buộc — Danh sách task thành phần
+- Mô hình Feature Manifest (`FeatureComponentTasksResult`): kết hợp danh sách `required_tasks` và các task có `task.feature_id = feature.id` thành tập task thành phần duy nhất.
+- Phân định task bắt buộc: nếu feature chỉ định `required_tasks`, chỉ các task đó có `is_required: true`; nếu `required_tasks` rỗng, mặc định tất cả task gán cho feature là bắt buộc.
+- Sắp xếp thứ tự thực thi topo: tích hợp `TaskRepository.getExecutionOrder` để định vị `execution_order` của từng task theo đồ thị phụ thuộc (ORC-008).
+- Phát hiện task thiếu (`missing_task_ids`): tự động phát hiện các task ID được khai báo trong `required_tasks` nhưng không tồn tại trong DB, chặn `ready_for_release`.
+- Thống kê điều kiện release: tính toán tổng số task, required, completed, pending, failed, missing; chỉ `ready_for_release: true` khi không thiếu task và 100% task bắt buộc đã `DONE`.
+- Cập nhật linh hoạt: cung cấp `defineFeatureTasks` hỗ trợ cập nhật `required_tasks`, gán (`assign_task_ids`) và gỡ (`unassign_task_ids`) task trong một SQLite transaction.
+- REST API: mở rộng `/features/:id/tasks` (GET, POST, PUT) và `/features/:id/manifest` (GET) hỗ trợ cả prefix `/api`.
+- Không thêm dependency bên ngoài mới; tái sử dụng zod, better-sqlite3 và Fastify.
+

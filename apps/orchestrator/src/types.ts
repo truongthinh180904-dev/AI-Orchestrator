@@ -24,6 +24,8 @@ import type { ReviewerService } from './services/reviewer-service.js';
 import type { SecurityCheckService } from './services/security-check-service.js';
 import type { RepairLoopService } from './services/repair-loop-service.js';
 import type { QualityGateService } from './services/quality-gate-service.js';
+import type { FeatureService } from './services/feature-service.js';
+import type { FeatureReleaseService } from './services/feature-release-service.js';
 
 export const ImportRequestSchema = z.object({
   filePath: z.string().optional(),
@@ -247,4 +249,6 @@ export interface BuildServerOptions {
   securityCheckService?: SecurityCheckService;
   repairLoopService?: RepairLoopService;
   qualityGateService?: QualityGateService;
+  featureService?: FeatureService;
+  featureReleaseService?: FeatureReleaseService;
 }

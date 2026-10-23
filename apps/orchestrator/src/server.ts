@@ -158,7 +158,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
 
   // Instantiate services
   const taskService = new TaskService(db);
-  const featureService = new FeatureService(db);
+  const featureService = options.featureService ?? new FeatureService(db);
   const importService = new ImportService(db);
 
   const executionManager =

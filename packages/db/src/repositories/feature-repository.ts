@@ -4,12 +4,14 @@ import {
   type CreateFeatureInput,
   type UpdateFeatureInput,
   type FeatureFilter,
+  type TaskWithDependencies,
   FeatureSchema,
   CreateFeatureInputSchema,
   UpdateFeatureInputSchema,
   FeatureFilterSchema,
   AppError,
 } from '@ai-orchestrator/shared';
+import { TaskRepository } from './task-repository.js';
 
 function rowToFeature(row: Record<string, unknown>): Feature {
   let required_tasks: unknown = [];
@@ -262,5 +264,103 @@ export class FeatureRepository {
     const query = `SELECT COUNT(*) as count FROM features ${whereClause}`;
     const row = this.db.prepare(query).get(...params) as { count: number };
     return row.count;
+  }
+
+  /**
+   * Lấy danh sách task thành phần thuộc feature (gồm tasks có feature_id = id và tasks trong required_tasks).
+   */
+  getComponentTasks(featureId: string): { feature: Feature; tasks: TaskWithDependencies[] } {
+    const feature = this.findById(featureId);
+    if (!feature) {
+      throw new AppError('FEATURE_NOT_FOUND', `Feature with id '${featureId}' not found`, {
+        featureId,
+      });
+    }
+
+    const taskRepo = new TaskRepository(this.db);
+    // 1. Lấy tasks liên kết qua feature_id
+    const tasksByFeature = taskRepo.findAll({ feature_id: featureId });
+    const taskMap = new Map<string, TaskWithDependencies>();
+    for (const t of tasksByFeature) {
+      taskMap.set(t.id, t);
+    }
+
+    // 2. Lấy thêm tasks được khai báo trong required_tasks nếu chưa có
+    for (const reqId of feature.required_tasks) {
+      if (!taskMap.has(reqId)) {
+        const found = taskRepo.findById(reqId);
+        if (found) {
+          taskMap.set(found.id, found);
+        }
+      }
+    }
+
+    return {
+      feature,
+      tasks: Array.from(taskMap.values()),
+    };
+  }
+
+  /**
+   * Thiết lập danh sách task bắt buộc cho feature.
+   */
+  setRequiredTasks(featureId: string, requiredTasks: string[]): Feature {
+    const feature = this.findById(featureId);
+    if (!feature) {
+      throw new AppError('FEATURE_NOT_FOUND', `Feature with id '${featureId}' not found`, {
+        featureId,
+      });
+    }
+
+    const now = new Date().toISOString();
+    this.db
+      .prepare('UPDATE features SET required_tasks = ?, updated_at = ? WHERE id = ?')
+      .run(JSON.stringify(requiredTasks), now, featureId);
+
+    const updated = this.findById(featureId);
+    if (!updated) {
+      throw new AppError('FEATURE_NOT_FOUND', `Feature with id '${featureId}' not found after update`);
+    }
+    return updated;
+  }
+
+  /**
+   * Gán danh sách task vào feature (cập nhật feature_id = featureId).
+   */
+  assignTasks(featureId: string, taskIds: string[]): void {
+    const feature = this.findById(featureId);
+    if (!feature) {
+      throw new AppError('FEATURE_NOT_FOUND', `Feature with id '${featureId}' not found`, {
+        featureId,
+      });
+    }
+    if (taskIds.length === 0) return;
+
+    const now = new Date().toISOString();
+    const placeholders = taskIds.map(() => '?').join(', ');
+    this.db
+      .prepare(`UPDATE tasks SET feature_id = ?, updated_at = ? WHERE id IN (${placeholders})`)
+      .run(featureId, now, ...taskIds);
+  }
+
+  /**
+   * Gỡ các task khỏi feature (cập nhật feature_id = NULL).
+   */
+  unassignTasks(featureId: string, taskIds: string[]): void {
+    const feature = this.findById(featureId);
+    if (!feature) {
+      throw new AppError('FEATURE_NOT_FOUND', `Feature with id '${featureId}' not found`, {
+        featureId,
+      });
+    }
+    if (taskIds.length === 0) return;
+
+    const now = new Date().toISOString();
+    const placeholders = taskIds.map(() => '?').join(', ');
+    this.db
+      .prepare(
+        `UPDATE tasks SET feature_id = NULL, updated_at = ? WHERE feature_id = ? AND id IN (${placeholders})`,
+      )
+      .run(now, featureId, ...taskIds);
   }
 }
