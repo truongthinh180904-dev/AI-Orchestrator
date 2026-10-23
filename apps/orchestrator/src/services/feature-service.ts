@@ -19,6 +19,9 @@ import {
   type PushFeatureReleaseResult,
   type ConfirmRemoteBranchInput,
   type ConfirmRemoteBranchResult,
+  type CreateFeaturePrInput,
+  type CreateFeaturePrResult,
+  type FeatureReleaseReportResult,
   type FeatureRelease,
 } from '@ai-orchestrator/shared';
 import { FeatureReleaseService, type FeatureReleaseServiceOptions } from './feature-release-service.js';
@@ -153,6 +156,23 @@ export class FeatureService {
     input?: ConfirmRemoteBranchInput,
   ): Promise<ConfirmRemoteBranchResult> {
     return this.releaseService.confirmRemoteBranch(id, input);
+  }
+
+  /**
+   * Tạo GitHub Pull Request (`gh pr create`) và sinh báo cáo phát hành release (REL-006).
+   */
+  async createFeaturePr(
+    id: string,
+    input?: CreateFeaturePrInput,
+  ): Promise<CreateFeaturePrResult> {
+    return this.releaseService.createFeaturePr(id, input);
+  }
+
+  /**
+   * Truy vấn và lấy nội dung báo cáo phát hành của feature (REL-006).
+   */
+  async getFeatureReleaseReport(id: string): Promise<FeatureReleaseReportResult> {
+    return this.releaseService.getFeatureReleaseReport(id);
   }
 }
 

@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import path from 'node:path';
 import type Database from 'better-sqlite3';
 import {
@@ -26,6 +27,9 @@ import {
   type PushFeatureReleaseResult,
   type ConfirmRemoteBranchInput,
   type ConfirmRemoteBranchResult,
+  type CreateFeaturePrInput,
+  type CreateFeaturePrResult,
+  type FeatureReleaseReportResult,
   type FeatureRelease,
   FeatureComponentTasksResultSchema,
   DefineFeatureTasksInputSchema,
@@ -41,7 +45,11 @@ import {
   PushFeatureReleaseResultSchema,
   ConfirmRemoteBranchInputSchema,
   ConfirmRemoteBranchResultSchema,
+  CreateFeaturePrInputSchema,
+  CreateFeaturePrResultSchema,
+  FeatureReleaseReportResultSchema,
   formatFeatureReleaseCheckMarkdownReport,
+  generateFeatureReleaseReportMarkdown,
   parseCommandLine,
   validateGitBranchName,
   gitBranchExists,
@@ -51,6 +59,7 @@ import {
   gitConfirmRemoteBranch,
   gitGetCurrentBranch,
   runGitCommand,
+  ghPrCreate,
   formatConventionalCommit,
   validateConventionalCommit,
   AppError,
@@ -65,8 +74,12 @@ export interface FeatureReleaseServiceOptions {
   reportRepo?: ReportRepository;
   releaseRepo?: FeatureReleaseRepository;
   processAdapter?: ProcessAdapter;
+  ghRunner?: (
+    args: string[],
+    cwd: string,
+    env?: Record<string, string>,
+  ) => Promise<{ stdout: string; stderr: string; exitCode: number }>;
 }
-
 
 /**
  * Service quản lý vòng đời phát hành tính năng (Feature Release - REL-*).
@@ -80,6 +93,11 @@ export class FeatureReleaseService {
   private readonly releaseRepo: FeatureReleaseRepository;
   private readonly processAdapter: ProcessAdapter;
   private readonly logger: Logger;
+  private readonly ghRunner?: (
+    args: string[],
+    cwd: string,
+    env?: Record<string, string>,
+  ) => Promise<{ stdout: string; stderr: string; exitCode: number }>;
 
   constructor(
     private readonly db: Database.Database,
@@ -92,6 +110,7 @@ export class FeatureReleaseService {
     this.releaseRepo = options?.releaseRepo ?? new FeatureReleaseRepository(db);
     this.processAdapter = options?.processAdapter ?? new ProcessAdapter();
     this.logger = options?.logger ?? defaultLogger;
+    this.ghRunner = options?.ghRunner;
   }
 
   /**
@@ -1040,6 +1059,254 @@ export class FeatureReleaseService {
       commit_sha: check.commitSha,
       confirmed: check.exists,
       checked_at: new Date().toISOString(),
+    });
+  }
+
+  /**
+   * Tạo GitHub Pull Request (`gh pr create`) và sinh báo cáo phát hành release (REL-006).
+   * Tiêu chí nghiệm thu: Lưu URL, SHA, quality report; chuyển trạng thái READY_FOR_REVIEW (chờ người duyệt).
+   */
+  async createFeaturePr(
+    featureId: string,
+    input?: CreateFeaturePrInput,
+  ): Promise<CreateFeaturePrResult> {
+    const validatedInput = CreateFeaturePrInputSchema.parse(input ?? {});
+
+    const feature = this.featureRepo.findById(featureId);
+    if (!feature) {
+      throw new AppError('FEATURE_NOT_FOUND', `Feature '${featureId}' not found`, { featureId });
+    }
+
+    const release = this.releaseRepo.findByFeatureId(featureId);
+    if (!release) {
+      throw new AppError(
+        'FEATURE_BRANCH_NOT_FOUND',
+        `No release record found for feature '${featureId}'. Call createFeatureBranch first.`,
+        { featureId },
+      );
+    }
+
+    // Kiểm tra commit SHA
+    if (release.status === 'BRANCH_CREATED' || !release.commit_sha) {
+      throw new AppError(
+        'FEATURE_NOT_COMMITTED',
+        `Feature release for '${featureId}' has not been committed yet. Call commitFeatureRelease first.`,
+        { featureId, releaseId: release.id, branch: release.branch },
+      );
+    }
+
+    // Kiểm tra trạng thái đã được push lên remote
+    const isPushed =
+      release.status === 'PUSHED' ||
+      release.status === 'PR_CREATED' ||
+      release.status === 'READY_FOR_REVIEW' ||
+      Boolean(release.metadata?.pushed_at);
+
+    if (!isPushed) {
+      throw new AppError(
+        'FEATURE_NOT_PUSHED',
+        `Branch '${release.branch}' must be pushed to remote before creating a pull request. Call pushFeatureRelease first. Current status: '${release.status}'.`,
+        { featureId, releaseId: release.id, branch: release.branch, status: release.status },
+      );
+    }
+
+    const repoPath = path.resolve(
+      validatedInput.repo_path || (release.metadata?.repo_path as string) || '.',
+    );
+    const baseBranch = validatedInput.base_branch || release.base_branch || 'main';
+    const headBranch = validatedInput.head_branch || release.branch;
+    const title =
+      validatedInput.title || `feat(${featureId}): release feature ${feature.name}`;
+
+    // Lấy thông tin tasks và Quality Gate để tổng hợp báo cáo phát hành
+    const manifest = this.getComponentTasks(featureId);
+
+    let latestQg = null;
+    for (const task of manifest.tasks) {
+      const qg = this.qualityGateRepo.findLatestByTaskId(task.id);
+      if (qg && (!latestQg || new Date(qg.evaluated_at) > new Date(latestQg.evaluated_at))) {
+        latestQg = qg;
+      }
+    }
+
+    // Sinh nội dung báo cáo release dạng Markdown chuẩn
+    const reportContent =
+      validatedInput.body !== undefined
+        ? validatedInput.body
+        : generateFeatureReleaseReportMarkdown({
+            featureId,
+            featureName: feature.name,
+            description: feature.description,
+            branch: release.branch,
+            baseBranch,
+            commitSha: release.commit_sha,
+            prUrl: release.pr_url,
+            tasks: manifest.tasks,
+            taskSummary: manifest.summary,
+            qualityGateResult: latestQg,
+          });
+
+    // 1. Lưu báo cáo vào file trên đĩa (mặc định reports/<featureId>.md theo SKILL-git-release.md)
+    let reportFilePath: string | null = null;
+    if (validatedInput.save_report_file) {
+      const relPath = validatedInput.report_file_path || `reports/${featureId}.md`;
+      reportFilePath = path.isAbsolute(relPath) ? relPath : path.join(repoPath, relPath);
+      try {
+        fs.mkdirSync(path.dirname(reportFilePath), { recursive: true });
+        fs.writeFileSync(reportFilePath, reportContent, 'utf-8');
+      } catch (err) {
+        this.logger.warn(`Failed to write release report file to ${reportFilePath}: ${String(err)}`, {
+          featureId,
+          reportFilePath,
+        });
+      }
+    }
+
+    // 2. Lưu báo cáo vào bảng `reports` trong SQLite DB (kind: 'feature_release')
+    const reportRecord = this.reportRepo.create({
+      kind: 'feature_release',
+      content: reportContent,
+      run_id: null,
+    });
+
+    // 3. Thực thi tạo GitHub PR qua `gh pr create`
+    const ghResult = await ghPrCreate({
+      base: baseBranch,
+      head: headBranch,
+      title,
+      bodyFile: reportFilePath ?? undefined,
+      body: reportFilePath ? undefined : reportContent,
+      draft: validatedInput.draft,
+      repoPath,
+      maxRetries: validatedInput.max_retries,
+      retryDelayMs: validatedInput.retry_delay_ms,
+      allowExisting: validatedInput.allow_existing,
+      runCommand: this.ghRunner,
+    });
+
+    // 4. Lưu URL, SHA, quality report và cập nhật trạng thái READY_FOR_REVIEW vào DB
+    const updatedRelease = this.releaseRepo.update(release.id, {
+      commit_sha: release.commit_sha,
+      pr_url: ghResult.prUrl,
+      status: 'READY_FOR_REVIEW',
+      metadata: {
+        ...release.metadata,
+        pr_url: ghResult.prUrl,
+        pr_number: ghResult.prNumber,
+        pr_title: title,
+        base_branch: baseBranch,
+        head_branch: headBranch,
+        quality_report_id: reportRecord.id,
+        quality_report_path: reportFilePath,
+        pr_created_at: ghResult.createdAt,
+      },
+    });
+
+    this.logger.info(
+      `Pull Request created and feature ready for review: '${featureId}' (${ghResult.prUrl})`,
+      {
+        featureId,
+        releaseId: release.id,
+        branch: headBranch,
+        baseBranch,
+        commitSha: release.commit_sha,
+        prUrl: ghResult.prUrl,
+        prNumber: ghResult.prNumber,
+        qualityReportId: reportRecord.id,
+        status: 'READY_FOR_REVIEW',
+      },
+    );
+
+    return CreateFeaturePrResultSchema.parse({
+      release_id: updatedRelease.id,
+      feature_id: featureId,
+      branch: headBranch,
+      base_branch: baseBranch,
+      commit_sha: release.commit_sha,
+      pr_url: ghResult.prUrl,
+      pr_number: ghResult.prNumber,
+      status: 'READY_FOR_REVIEW',
+      quality_report_id: reportRecord.id,
+      quality_report_path: reportFilePath,
+      created_at: ghResult.createdAt,
+    });
+  }
+
+  /**
+   * Truy vấn và lấy nội dung báo cáo phát hành của feature (REL-006).
+   */
+  async getFeatureReleaseReport(featureId: string): Promise<FeatureReleaseReportResult> {
+    const feature = this.featureRepo.findById(featureId);
+    if (!feature) {
+      throw new AppError('FEATURE_NOT_FOUND', `Feature '${featureId}' not found`, { featureId });
+    }
+
+    const release = this.releaseRepo.findByFeatureId(featureId);
+    if (!release) {
+      throw new AppError(
+        'RELEASE_NOT_FOUND',
+        `No release record found for feature '${featureId}'`,
+        { featureId },
+      );
+    }
+
+    let reportContent: string | null = null;
+    const reportId = (release.metadata?.quality_report_id as string) || null;
+    const reportPath = (release.metadata?.quality_report_path as string) || null;
+
+    if (reportId) {
+      const dbReport = this.reportRepo.getById(reportId);
+      if (dbReport) {
+        reportContent = dbReport.content;
+      }
+    }
+
+    if (!reportContent && reportPath && fs.existsSync(reportPath)) {
+      try {
+        reportContent = fs.readFileSync(reportPath, 'utf-8');
+      } catch {
+        reportContent = null;
+      }
+    }
+
+    if (!reportContent) {
+      // Tự động sinh báo cáo nếu chưa có sẵn
+      const manifest = this.getComponentTasks(featureId);
+      let latestQg = null;
+      for (const task of manifest.tasks) {
+        const qg = this.qualityGateRepo.findLatestByTaskId(task.id);
+        if (qg && (!latestQg || new Date(qg.evaluated_at) > new Date(latestQg.evaluated_at))) {
+          latestQg = qg;
+        }
+      }
+
+      reportContent = generateFeatureReleaseReportMarkdown({
+        featureId,
+        featureName: feature.name,
+        description: feature.description,
+        branch: release.branch,
+        baseBranch: release.base_branch,
+        commitSha: release.commit_sha || 'N/A',
+        prUrl: release.pr_url,
+        tasks: manifest.tasks,
+        taskSummary: manifest.summary,
+        qualityGateResult: latestQg,
+      });
+    }
+
+    return FeatureReleaseReportResultSchema.parse({
+      feature_id: featureId,
+      feature_name: feature.name,
+      release_id: release.id,
+      branch: release.branch,
+      base_branch: release.base_branch,
+      commit_sha: release.commit_sha || '',
+      pr_url: release.pr_url,
+      status: release.status,
+      report_content: reportContent,
+      report_path: reportPath,
+      report_id: reportId,
+      generated_at: new Date().toISOString(),
     });
   }
 }

@@ -9,6 +9,7 @@ import {
   CommitFeatureReleaseInputSchema,
   PushFeatureReleaseInputSchema,
   ConfirmRemoteBranchInputSchema,
+  CreateFeaturePrInputSchema,
   AppError,
 } from '@ai-orchestrator/shared';
 
@@ -213,6 +214,64 @@ export const featureRoutes: FastifyPluginAsync<FeatureRoutesOptions> = async (fa
 
   fastify.get('/features/:id/remote-status', handleGetRemoteStatus);
   fastify.get('/api/features/:id/remote-status', handleGetRemoteStatus);
+
+  // POST /features/:id/pr & POST /api/features/:id/pr (REL-006)
+  const handleCreateFeaturePr = async (request: FastifyRequest, reply: FastifyReply) => {
+    const params = FeatureParamsSchema.parse(request.params);
+    const body = CreateFeaturePrInputSchema.parse(request.body ?? {});
+    const result = await featureService.createFeaturePr(params.id, body);
+    return reply.status(201).send({ data: result });
+  };
+
+  fastify.post('/features/:id/pr', handleCreateFeaturePr);
+  fastify.post('/api/features/:id/pr', handleCreateFeaturePr);
+
+  // GET /features/:id/pr & GET /api/features/:id/pr (REL-006)
+  const handleGetFeaturePr = async (request: FastifyRequest) => {
+    const params = FeatureParamsSchema.parse(request.params);
+    const release = featureService.getFeatureRelease(params.id);
+    if (!release) {
+      throw new AppError(
+        'RELEASE_NOT_FOUND',
+        `No release record found for feature '${params.id}'`,
+        { featureId: params.id },
+      );
+    }
+    if (!release.pr_url) {
+      throw new AppError(
+        'PR_NOT_FOUND',
+        `No pull request has been created yet for feature '${params.id}'`,
+        { featureId: params.id },
+      );
+    }
+    return {
+      data: {
+        feature_id: params.id,
+        release_id: release.id,
+        branch: release.branch,
+        base_branch: release.base_branch,
+        commit_sha: release.commit_sha,
+        pr_url: release.pr_url,
+        pr_number: release.metadata?.pr_number ?? null,
+        status: release.status,
+        quality_report_id: release.metadata?.quality_report_id ?? null,
+        quality_report_path: release.metadata?.quality_report_path ?? null,
+      },
+    };
+  };
+
+  fastify.get('/features/:id/pr', handleGetFeaturePr);
+  fastify.get('/api/features/:id/pr', handleGetFeaturePr);
+
+  // GET /features/:id/release-report & GET /api/features/:id/release-report (REL-006)
+  const handleGetReleaseReport = async (request: FastifyRequest) => {
+    const params = FeatureParamsSchema.parse(request.params);
+    const reportResult = await featureService.getFeatureReleaseReport(params.id);
+    return { data: reportResult };
+  };
+
+  fastify.get('/features/:id/release-report', handleGetReleaseReport);
+  fastify.get('/api/features/:id/release-report', handleGetReleaseReport);
 };
 
 

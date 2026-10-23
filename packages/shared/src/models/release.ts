@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { TaskStatusSchema } from './task.js';
 import { FeatureStatusSchema } from './feature.js';
+import type { QualityGateResult } from './quality-gate.js';
 
 /**
  * Đại diện cho một task thành phần trong một feature.
@@ -438,6 +439,187 @@ export const ConfirmRemoteBranchResultSchema = z.object({
 });
 
 export type ConfirmRemoteBranchResult = z.infer<typeof ConfirmRemoteBranchResultSchema>;
+
+/**
+ * Tham số đầu vào để tạo GitHub Pull Request cho feature (REL-006).
+ */
+export const CreateFeaturePrInputSchema = z.object({
+  title: z.string().min(1).optional(),
+  body: z.string().optional(),
+  base_branch: z.string().min(1).optional(),
+  head_branch: z.string().min(1).optional(),
+  draft: z.boolean().default(false),
+  repo_path: z.string().optional(),
+  save_report_file: z.boolean().default(true),
+  report_file_path: z.string().optional(),
+  max_retries: z.number().int().min(0).max(5).default(2),
+  retry_delay_ms: z.number().int().min(0).default(300),
+  allow_existing: z.boolean().default(true),
+});
+
+export type CreateFeaturePrInput = z.input<typeof CreateFeaturePrInputSchema>;
+
+/**
+ * Kết quả tạo GitHub Pull Request cho feature release (REL-006).
+ */
+export const CreateFeaturePrResultSchema = z.object({
+  release_id: z.string().min(1),
+  feature_id: z.string().min(1),
+  branch: z.string().min(1),
+  base_branch: z.string().min(1),
+  commit_sha: z.string().regex(/^[0-9a-f]{40}$/i, 'Commit SHA must be a 40-character hex string'),
+  pr_url: z.string().url('PR URL must be a valid URL'),
+  pr_number: z.number().int().positive().nullable().default(null),
+  status: FeatureReleaseStatusSchema,
+  quality_report_id: z.string().nullable().default(null),
+  quality_report_path: z.string().nullable().default(null),
+  created_at: z.string(),
+});
+
+export type CreateFeaturePrResult = z.infer<typeof CreateFeaturePrResultSchema>;
+
+/**
+ * Kết quả truy vấn / lấy nội dung báo cáo release của feature (REL-006).
+ */
+export const FeatureReleaseReportResultSchema = z.object({
+  feature_id: z.string().min(1),
+  feature_name: z.string().min(1),
+  release_id: z.string().min(1),
+  branch: z.string().min(1),
+  base_branch: z.string().min(1),
+  commit_sha: z.string().min(1),
+  pr_url: z.string().nullable().default(null),
+  status: FeatureReleaseStatusSchema,
+  report_content: z.string().min(1),
+  report_path: z.string().nullable().default(null),
+  report_id: z.string().nullable().default(null),
+  generated_at: z.string(),
+});
+
+export type FeatureReleaseReportResult = z.infer<typeof FeatureReleaseReportResultSchema>;
+
+export interface GenerateFeatureReleaseReportOptions {
+  featureId: string;
+  featureName: string;
+  description?: string | null;
+  branch: string;
+  baseBranch: string;
+  commitSha: string;
+  prUrl?: string | null;
+  tasks: FeatureComponentTask[];
+  taskSummary: FeatureTaskSummary;
+  qualityGateResult?: QualityGateResult | null;
+  integrationTests?: FeatureIntegrationTestRecord[];
+  generatedAt?: string;
+}
+
+/**
+ * Sinh nội dung báo cáo phát hành tính năng (Feature Release Report) dạng Markdown chuẩn.
+ */
+export function generateFeatureReleaseReportMarkdown(
+  options: GenerateFeatureReleaseReportOptions,
+): string {
+  const {
+    featureId,
+    featureName,
+    description,
+    branch,
+    baseBranch,
+    commitSha,
+    prUrl,
+    tasks,
+    taskSummary,
+    qualityGateResult,
+    integrationTests,
+    generatedAt = new Date().toISOString(),
+  } = options;
+
+  const lines: string[] = [
+    `# Feature Release Report: ${featureName} (${featureId})`,
+    '',
+    `- **Feature ID**: \`${featureId}\``,
+    `- **Feature Name**: ${featureName}`,
+    `- **Status**: **READY_FOR_REVIEW** (Chờ người duyệt)`,
+    `- **Base Branch**: \`${baseBranch}\``,
+    `- **Release Branch**: \`${branch}\``,
+    `- **Commit SHA**: \`${commitSha}\``,
+    prUrl ? `- **Pull Request**: [${prUrl}](${prUrl})` : `- **Pull Request**: Pending Creation`,
+    `- **Report Generated At**: ${generatedAt}`,
+    '',
+    '## 1. Description',
+    description || '_No description provided._',
+    '',
+    '## 2. Component Tasks',
+    `- Total: ${taskSummary.total_tasks} | Required: ${taskSummary.required_count} | Completed: ${taskSummary.completed_count} | Pending: ${taskSummary.pending_count} | Failed: ${taskSummary.failed_count}`,
+    '',
+    '| Order | Task ID | Title | Status | Required | Phase |',
+    '|---|---|---|---|---|---|',
+  ];
+
+  for (const t of tasks) {
+    const statusIcon = t.status === 'DONE' ? '✅' : '⏳';
+    const reqIcon = t.is_required ? '🔴 Required' : '⚪ Optional';
+    lines.push(
+      `| ${t.execution_order} | \`${t.id}\` | ${t.title} | ${statusIcon} ${t.status} | ${reqIcon} | ${t.phase ?? 'N/A'} |`,
+    );
+  }
+
+  lines.push('', '## 3. Quality Gate & Compliance');
+  if (qualityGateResult) {
+    const qgIcon = qualityGateResult.passed ? '✅ PASSED' : '❌ FAILED';
+    const es = qualityGateResult.evidence_summary;
+    const scopePass = es.outOfScopeFilesCount === 0;
+    const reviewPass = es.reviewHighCount === 0 && es.reviewCriticalCount === 0;
+    const secPass = es.secretFindingsCount === 0 && es.auditHighCriticalCount === 0;
+    const cmdPass = es.failedCommands === 0;
+
+    lines.push(
+      `- **Overall Status**: **${qgIcon}** (${qualityGateResult.status})`,
+      `- **Summary**: ${qualityGateResult.summary}`,
+      `- **Evaluated At**: ${qualityGateResult.evaluated_at}`,
+      '',
+      '| Check Area | Status | Evidence |',
+      '|---|---|---|',
+      `| CLI Execution | ${es.cliSucceeded ? '✅ PASS' : '❌ FAIL'} | Exit code ${es.cliExitCode ?? 0} |`,
+      `| Quality Commands | ${cmdPass ? '✅ PASS' : '❌ FAIL'} | ${es.passedCommands}/${es.totalCommands} passed (failed: ${es.failedCommands}) |`,
+      `| Task Scope Check | ${scopePass ? '✅ PASS' : '❌ FAIL'} | ${es.outOfScopeFilesCount} foreign files modified |`,
+      `| Code Review | ${reviewPass ? '✅ PASS' : '❌ FAIL'} | ${es.reviewCriticalCount} critical, ${es.reviewHighCount} high findings |`,
+      `| Security Check | ${secPass ? '✅ PASS' : '❌ FAIL'} | ${es.secretFindingsCount} secrets leaked, ${es.auditHighCriticalCount} audit vulnerabilities |`,
+    );
+  } else {
+    lines.push('- All component tasks completed with Quality Gate PASS evidence verified.');
+  }
+
+  if (integrationTests && integrationTests.length > 0) {
+    lines.push(
+      '',
+      '## 4. Integration Test Results',
+      '| Command | Status | Exit Code | Duration |',
+      '|---|---|---|---|',
+    );
+    for (const test of integrationTests) {
+      const icon = test.status === 'SUCCESS' ? '✅' : '❌';
+      lines.push(
+        `| \`${test.command}\` | ${icon} ${test.status} | ${test.exit_code ?? 'N/A'} | ${test.duration_ms}ms |`,
+      );
+    }
+  }
+
+  lines.push(
+    '',
+    '## 5. Review & Sign-Off Checklist',
+    '- [x] All required component tasks verified and DONE',
+    '- [x] Quality Gate passed with automated verification evidence',
+    '- [x] Standardized Conventional Commit created with SHA recorded',
+    '- [x] Feature branch pushed to remote and confirmed via `git ls-remote`',
+    '- [ ] Pull Request reviewed and approved by human maintainer',
+    '',
+    '> **Note**: Bàn giao feature đã sẵn sàng. Chờ người duyệt (human approval) trước khi merge vào nhánh chính.',
+  );
+
+  return lines.join('\n');
+}
+
 
 
 

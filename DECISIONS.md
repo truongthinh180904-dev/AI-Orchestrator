@@ -797,3 +797,14 @@
 - Thêm REST API: `POST /features/:id/push` (HTTP 200) và `GET /features/:id/remote-status` (HTTP 200).
 - Không thêm dependency bên ngoài mới; tái sử dụng zod, better-sqlite3 và child_process.
 
+## REL-006: Tạo PR (`gh pr create`) + báo cáo release — Lưu URL, SHA, quality report
+- Thực thi `gh pr create` bằng `child_process.spawn('gh', args)` an toàn, cấm shell: true; tham số chuẩn `--base`, `--head`, `--title`, `--body-file`.
+- Tự động sinh báo cáo release GitHub-flavored Markdown gồm manifest task, SHA, Quality Gate evidence và sign-off checklist, lưu ra đĩa `reports/<feature-id>.md` và DB `reports` (`kind: 'feature_release'`).
+- Cập nhật SQLite DB `feature_releases`: lưu `pr_url`, `commit_sha`, chuyển trạng thái `status = 'READY_FOR_REVIEW'` (chờ người duyệt) theo `SKILL-git-release.md`.
+- Kiểm tra điều kiện tiên quyết: yêu cầu đã commit (`FEATURE_NOT_COMMITTED`) và đã push lên remote (`FEATURE_NOT_PUSHED`) trước khi tạo PR.
+- Xử lý tính lũy đẳng: khi PR đã tồn tại (`GH_PR_ALREADY_EXISTS`), tự động bóc tách PR URL và số hiệu PR, trả về thành công không crash (`isExisting: true`).
+- Tự động lọc sạch secret/token trong output và log bằng `sanitizeGhOutput` (`[REDACTED_GH_TOKEN]`, `[REDACTED_GH_PAT]`, `[REDACTED_CREDENTIALS]`).
+- Phân loại lỗi `gh` chuẩn hóa: retry lỗi mạng `GH_NETWORK_ERROR` với backoff, fail-fast đối với lỗi xác thực `GH_AUTH_FAILED` (401) hoặc thiếu CLI `GH_NOT_FOUND` (500).
+- Cung cấp REST API: `POST /features/:id/pr` (201), `GET /features/:id/pr` (200), `GET /features/:id/release-report` (200).
+
+
