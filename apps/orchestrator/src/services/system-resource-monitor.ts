@@ -34,8 +34,8 @@ export class SystemResourceMonitor {
   private readonly db?: Database.Database;
   private readonly repo?: SystemResourceRepository;
   private readonly clock: () => number;
-  private readonly diskPath: string;
-  private readonly metricsSampler?: () => SystemResourceMetricsSample | Promise<SystemResourceMetricsSample>;
+  private diskPath: string;
+  private metricsSampler?: () => SystemResourceMetricsSample | Promise<SystemResourceMetricsSample>;
 
   private prevCpuTimes: CpuTimeAggregate;
   private prevCpuTimestamp: number;
@@ -55,6 +55,10 @@ export class SystemResourceMonitor {
 
     this.prevCpuTimestamp = this.clock();
     this.prevCpuTimes = this.aggregateCpuTimes();
+  }
+
+  setMetricsSampler(sampler?: () => SystemResourceMetricsSample | Promise<SystemResourceMetricsSample>): void {
+    this.metricsSampler = sampler;
   }
 
   get currentThresholds(): SystemResourceThresholds {

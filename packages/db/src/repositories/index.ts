@@ -17,3 +17,4 @@ export * from './quota-event-repository.js';
 export * from './execution-schedule-repository.js';
 export * from './recovery-audit-repository.js';
 export * from './system-resource-repository.js';
+export * from './soak-test-repository.js';

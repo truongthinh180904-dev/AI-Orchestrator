@@ -17,3 +17,4 @@ export * from './schedule/index.js';
 export * from './process/index.js';
 export * from './launchd/index.js';
 export * from './power/index.js';
+export * from './soak/index.js';

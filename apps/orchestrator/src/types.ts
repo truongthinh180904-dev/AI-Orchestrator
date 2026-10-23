@@ -33,6 +33,7 @@ import type { ProcessMonitorService } from './services/process-monitor-service.j
 import type { SystemResourceMonitor } from './services/system-resource-monitor.js';
 import type { RunService } from './services/run-service.js';
 import type { CaffeinateManager } from './services/caffeinate-manager.js';
+import type { SoakTestRunner } from './services/soak-test-runner.js';
 
 export const ImportRequestSchema = z.object({
   filePath: z.string().optional(),
@@ -302,5 +303,6 @@ export interface BuildServerOptions {
   systemResourceMonitor?: SystemResourceMonitor;
   runService?: RunService;
   caffeinateManager?: CaffeinateManager;
+  soakTestRunner?: SoakTestRunner;
   autoRecover?: boolean;
 }

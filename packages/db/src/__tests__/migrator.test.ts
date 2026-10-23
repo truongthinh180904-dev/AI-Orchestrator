@@ -29,9 +29,10 @@ describe('Migration Runner', () => {
       expect(firstRun).toContain('015_restart_recovery.sql');
       expect(firstRun).toContain('016_process_heartbeat.sql');
       expect(firstRun).toContain('017_system_resources.sql');
+      expect(firstRun).toContain('018_soak_tests.sql');
 
       const appliedAfterFirst = getAppliedMigrations(db);
-      expect(appliedAfterFirst.length).toBe(17);
+      expect(appliedAfterFirst.length).toBe(18);
       expect(appliedAfterFirst[0]?.name).toBe('001_initial_schema.sql');
       expect(appliedAfterFirst[1]?.name).toBe('002_agent_lock.sql');
       expect(appliedAfterFirst[2]?.name).toBe('003_checkpoints.sql');
@@ -49,6 +50,7 @@ describe('Migration Runner', () => {
       expect(appliedAfterFirst[14]?.name).toBe('015_restart_recovery.sql');
       expect(appliedAfterFirst[15]?.name).toBe('016_process_heartbeat.sql');
       expect(appliedAfterFirst[16]?.name).toBe('017_system_resources.sql');
+      expect(appliedAfterFirst[17]?.name).toBe('018_soak_tests.sql');
       expect(appliedAfterFirst[0]?.applied_at).toBeTruthy();
       expect(appliedAfterFirst[1]?.applied_at).toBeTruthy();
       expect(appliedAfterFirst[2]?.applied_at).toBeTruthy();
@@ -66,13 +68,14 @@ describe('Migration Runner', () => {
       expect(appliedAfterFirst[14]?.applied_at).toBeTruthy();
       expect(appliedAfterFirst[15]?.applied_at).toBeTruthy();
       expect(appliedAfterFirst[16]?.applied_at).toBeTruthy();
+      expect(appliedAfterFirst[17]?.applied_at).toBeTruthy();
 
       // Second run: idempotent, returns empty array, no error
       const secondRun = runMigrations(db);
       expect(secondRun).toEqual([]);
 
       const appliedAfterSecond = getAppliedMigrations(db);
-      expect(appliedAfterSecond.length).toBe(17);
+      expect(appliedAfterSecond.length).toBe(18);
     } finally {
       db.close();
     }

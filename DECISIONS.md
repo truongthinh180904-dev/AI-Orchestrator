@@ -950,3 +950,14 @@
 - Triển khai `CaffeinateManager` (`apps/orchestrator`) quản lý vòng đời tiến trình caffeinate, hỗ trợ dọn dẹp SIGTERM/SIGKILL khi tắt ứng dụng và có chế độ mô phỏng an toàn trên các OS khác.
 - Cung cấp kịch bản quản trị `scripts/service-control.sh` (install/uninstall/start/stop/restart/status/logs/generate) và wrapper `scripts/run-caffeinated.sh`.
 - Viết tài liệu hướng dẫn vận hành chi tiết `docs/launchd-service-guide.md` và cập nhật `RUN.md`; không thêm dependency ngoài mới, tuân thủ TypeScript `strict: true`.
+
+
+## OPS-007: Soak test + mô phỏng lỗi xuyên đêm — Đạt thời lượng, không mất dữ liệu
+- Hỗ trợ 2 chế độ soak test trong `SoakTestConfigSchema` (`@ai-orchestrator/shared`): `virtual` (đồng hồ ảo gia tốc mô phỏng 8 - 24 giờ trong vài giây) và `realtime` (thời gian thực có khoảng nghỉ poll phục vụ vận hành thực tế).
+- Phân loại và mô phỏng 5 nhóm lỗi xuyên đêm: Rate limit (`RATE_LIMIT` / 429), Worker crash đột ngột (`PROCESS_CRASH` / SIGKILL), Worker treo (`UNRESPONSIVE_PROCESS` / stale heartbeat), Quá tải hệ thống (`RESOURCE_SPIKE` / CRITICAL), và Daemon sập đột ngột (`SERVICE_RESTART`).
+- Tiêu chí "Đạt thời lượng": `duration_achieved = true` khi hoàn thành đúng hoặc vượt target duration / iterations mà không gặp unhandled crash; theo dõi bộ nhớ heap qua các lượt đảm bảo `leak_suspected = false` (`heap_growth_ratio < 5.0`).
+- Tiêu chí "Không mất dữ liệu": `zero_data_loss = true` khi `PRAGMA integrity_check` = 'ok', 0 task RUNNING mồ côi (`orphaned_running_tasks = 0`), 0 khóa treo (`dangling_locks = 0`), và toàn bộ runs/checkpoints/events/audits được lưu vết đầy đủ.
+- Migration `018_soak_tests.sql` và `SoakTestRepository` (`@ai-orchestrator/db`) lưu trữ toàn bộ kết quả, báo cáo toàn vẹn dữ liệu, và lịch sử sự kiện lỗi vào SQLite.
+- Triển khai `SoakTestRunner` (`apps/orchestrator`) tích hợp `TaskScheduler`, `RecoveryService`, `ProcessMonitorService`, `ResourceQuotaManager`, và `SystemResourceMonitor`.
+- Cung cấp kịch bản CLI `scripts/run-soak-test.mjs` chạy trực tiếp bằng Node.js tiêu chuẩn và 5 REST API endpoints (`/system/soak-test/run`, `/status`, `/runs`, `/integrity`, `/simulate-fault`).
+- Tuân thủ TypeScript `strict: true`, không thêm dependency bên ngoài mới, hoàn thành Milestone F và tiêu chí nghiệm thu toàn sản phẩm.
