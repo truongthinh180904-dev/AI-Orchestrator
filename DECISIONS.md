@@ -678,3 +678,12 @@
 - **REST API & Dependencies**: Bổ sung `POST /plans/:id/dispatch`, `/plans/:id/step`, `/plans/:id/orchestrate`, `GET /plans/:id/execution`; không thêm dependency bên ngoài mới nào.
 
 
+
+## QLT-001: Cấu hình lệnh kiểm định theo repo (format/lint/test/build) — Đọc từ config
+- **Mô hình Quality Stage**: Chuẩn hóa các stage `format`, `lint`, `typecheck`, `test`, `build`, và `custom` trong `@ai-orchestrator/shared`.
+- **An toàn thực thi dòng lệnh**: `parseCommandLine` phân tích chuỗi lệnh thành `{ exe, args[] }` xử lý nháy/ký tự thoát, phục vụ `spawn` trực tiếp, cấm dùng shell động.
+- **Quy tắc nghiệm thu "Đọc từ config"**: Cơ chế `resolveRepoQualityConfig` hỗ trợ đọc đa nguồn theo thứ tự ưu tiên: `overrides` > file repo (`quality.json`, `.orchestrator/quality.json`) > `package.json` (`qualityGate`/scripts) > workbook `Config` sheet (`verify_commands`/`settings`).
+- **Ghi đè cấp task**: `getConfigForTask` tự động tích hợp `task.test_commands` để tùy biến bộ test theo từng nhiệm vụ cụ thể mà vẫn giữ nguyên format/lint/typecheck.
+- **Thứ tự pipeline thực thi**: `getExecutionPipeline` sinh danh sách lệnh kích hoạt theo thứ tự chuẩn `format -> lint -> typecheck -> test -> build -> custom`, tự động bỏ qua stage null hoặc tắt.
+- **Dịch vụ & REST API**: Cung cấp `QualityConfigService` và các endpoint `/repos/:id/quality-config`, `/tasks/:id/quality-config`, `/quality/resolve` tích hợp chặt chẽ với `RepositoryRegistry`.
+- **Dependencies**: Tái sử dụng Zod, better-sqlite3 và Fastify; không thêm dependency bên ngoài mới nào.

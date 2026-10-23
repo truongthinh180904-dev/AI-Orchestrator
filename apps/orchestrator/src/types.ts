@@ -17,6 +17,7 @@ import type { ExecutionManager } from './adapters/execution-manager.js';
 import type { RepositoryRegistry } from './adapters/repository-registry.js';
 import type { TaskScheduler } from './services/task-scheduler.js';
 import type { PlannerService } from './services/planner-service.js';
+import type { QualityConfigService } from './services/quality-config-service.js';
 
 export const ImportRequestSchema = z.object({
   filePath: z.string().optional(),
@@ -233,4 +234,5 @@ export interface BuildServerOptions {
   repositoryRegistry?: RepositoryRegistry;
   taskScheduler?: TaskScheduler;
   plannerService?: PlannerService;
+  qualityConfigService?: QualityConfigService;
 }

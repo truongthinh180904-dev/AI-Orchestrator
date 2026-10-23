@@ -9,6 +9,7 @@ import { ImportService } from './services/import-service.js';
 import { RunService } from './services/run-service.js';
 import { TaskScheduler } from './services/task-scheduler.js';
 import { PlannerService } from './services/planner-service.js';
+import { QualityConfigService } from './services/quality-config-service.js';
 import { createExecutionManager } from './adapters/execution-manager.js';
 import { healthRoutes } from './routes/health.js';
 import { taskRoutes } from './routes/tasks.js';
@@ -17,6 +18,7 @@ import { importRoutes } from './routes/import.js';
 import { runRoutes } from './routes/runs.js';
 import { schedulerRoutes } from './routes/scheduler.js';
 import { planRoutes } from './routes/plans.js';
+import { qualityRoutes } from './routes/quality.js';
 
 export async function buildServer(options: BuildServerOptions): Promise<FastifyInstance> {
   const { db, logger = false } = options;
@@ -57,6 +59,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           break;
         case 'PLAN_SPAWN_ERROR':
         case 'PLAN_GENERATION_FAILED':
+        case 'DATABASE_NOT_CONFIGURED':
           statusCode = 500;
           break;
         case 'VALIDATION_ERROR':
@@ -80,6 +83,10 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
         case 'PLAN_MISSING_DEPENDENCY':
         case 'PLAN_NOT_APPROVED':
         case 'INVALID_PLAN_STATE_TRANSITION':
+        case 'INVALID_QUALITY_COMMAND':
+        case 'INVALID_COMMAND':
+        case 'INVALID_QUALITY_CONFIG_FILE':
+        case 'INVALID_PACKAGE_JSON':
         case 'PATH_NOT_FOUND':
         case 'NOT_A_DIRECTORY':
           statusCode = 400;
@@ -167,6 +174,13 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       taskScheduler,
     });
 
+  const qualityConfigService =
+    options.qualityConfigService ??
+    new QualityConfigService({
+      repositoryRegistry: options.repositoryRegistry,
+      db,
+    });
+
   // Register routes
   await server.register(healthRoutes);
   await server.register(taskRoutes, { taskService });
@@ -175,6 +189,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   await server.register(runRoutes, { runService });
   await server.register(schedulerRoutes, { scheduler: taskScheduler });
   await server.register(planRoutes, { plannerService });
+  await server.register(qualityRoutes, { qualityConfigService });
 
   return server;
 }
