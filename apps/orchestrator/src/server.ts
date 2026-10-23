@@ -205,12 +205,14 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   const executionManager =
     options.executionManager ??
     createExecutionManager({ repositoryRegistry: options.repositoryRegistry });
-  const runService = new RunService({
-    db,
-    executionManager,
-    repositoryRegistry: options.repositoryRegistry,
-    config: options.config,
-  });
+  const runService =
+    options.runService ??
+    new RunService({
+      db,
+      executionManager,
+      repositoryRegistry: options.repositoryRegistry,
+      config: options.config,
+    });
 
   const resourceQuotaManager =
     options.resourceQuotaManager ??

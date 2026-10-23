@@ -27,6 +27,7 @@ export const RunSchema = z.object({
   finished_at: z.string().nullable().default(null),
   branch: z.string().nullable().default(null),
   commit_sha: z.string().nullable().default(null),
+  last_heartbeat_at: z.string().nullable().optional(),
 });
 
 export type Run = z.infer<typeof RunSchema>;
@@ -42,6 +43,7 @@ export const CreateRunInputSchema = z.object({
   finished_at: z.string().nullable().optional(),
   branch: z.string().nullable().optional(),
   commit_sha: z.string().nullable().optional(),
+  last_heartbeat_at: z.string().nullable().optional(),
 });
 
 export type CreateRunInput = z.input<typeof CreateRunInputSchema>;
@@ -54,6 +56,7 @@ export const UpdateRunInputSchema = z.object({
   finished_at: z.string().nullable().optional(),
   branch: z.string().nullable().optional(),
   commit_sha: z.string().nullable().optional(),
+  last_heartbeat_at: z.string().nullable().optional(),
 });
 
 export type UpdateRunInput = z.input<typeof UpdateRunInputSchema>;

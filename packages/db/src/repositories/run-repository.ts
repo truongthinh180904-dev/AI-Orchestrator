@@ -24,6 +24,7 @@ function rowToRun(row: Record<string, unknown>): Run {
     finished_at: row.finished_at ?? null,
     branch: row.branch ?? null,
     commit_sha: row.commit_sha ?? null,
+    last_heartbeat_at: (row.last_heartbeat_at as string | null | undefined) ?? null,
   });
 }
 
@@ -48,8 +49,8 @@ export class RunRepository {
     const status = validated.status ?? 'RUNNING';
 
     const stmt = this.db.prepare(
-      `INSERT INTO runs (id, task_id, attempt, status, exit_code, pid, started_at, finished_at, branch, commit_sha)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO runs (id, task_id, attempt, status, exit_code, pid, started_at, finished_at, branch, commit_sha, last_heartbeat_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
 
     try {
@@ -64,6 +65,7 @@ export class RunRepository {
         validated.finished_at ?? null,
         validated.branch ?? null,
         validated.commit_sha ?? null,
+        validated.last_heartbeat_at ?? null,
       );
     } catch (err) {
       throw new AppError(
@@ -160,6 +162,10 @@ export class RunRepository {
       updates.push('commit_sha = ?');
       values.push(validated.commit_sha);
     }
+    if (validated.last_heartbeat_at !== undefined) {
+      updates.push('last_heartbeat_at = ?');
+      values.push(validated.last_heartbeat_at);
+    }
 
     if (updates.length > 0) {
       values.push(id);
@@ -190,6 +196,11 @@ export class RunRepository {
         (details?.exit_code !== undefined ? new Date().toISOString() : undefined),
       pid: details?.pid,
     });
+  }
+
+  updateHeartbeat(id: string, timestamp?: string): Run {
+    const ts = timestamp ?? new Date().toISOString();
+    return this.update(id, { last_heartbeat_at: ts });
   }
 
   delete(id: string): boolean {

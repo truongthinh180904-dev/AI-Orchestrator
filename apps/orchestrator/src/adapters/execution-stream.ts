@@ -30,6 +30,8 @@ export interface RunRecorderTarget {
     status: RunStatus,
     details?: { exit_code?: number | null; finished_at?: string; pid?: number | null },
   ): unknown;
+  updateHeartbeat?(id: string, timestamp?: string): unknown;
+  update?(id: string, input: { last_heartbeat_at?: string | null; [key: string]: unknown }): unknown;
 }
 
 export interface ExecutionStreamOptions {
@@ -70,6 +72,8 @@ export class ExecutionStreamRecorder extends EventEmitter {
   private _stderrDecoder = new StringDecoder('utf8');
   private _stderrBuffer = '';
   private _completed = false;
+  private _lastHeartbeatAt: Date = new Date();
+  private _lastHeartbeatDbSyncAt = 0;
   private readonly _completionPromise: Promise<ExecutionCompletionResult>;
   private _resolveCompletion!: (result: ExecutionCompletionResult) => void;
   private _rejectCompletion!: (err: Error) => void;
@@ -119,6 +123,31 @@ export class ExecutionStreamRecorder extends EventEmitter {
 
   public get resolution(): RunResolutionResult | null {
     return this._resolution;
+  }
+
+  public get lastHeartbeatAt(): Date {
+    return this._lastHeartbeatAt;
+  }
+
+  public recordHeartbeat(timestamp: Date = new Date(), forceDbSync = false): void {
+    this._lastHeartbeatAt = timestamp;
+    const now = timestamp.getTime();
+    if (forceDbSync || now - this._lastHeartbeatDbSyncAt >= 2000) {
+      this._lastHeartbeatDbSyncAt = now;
+      const iso = timestamp.toISOString();
+      if (this._runRepo) {
+        try {
+          if (typeof this._runRepo.updateHeartbeat === 'function') {
+            this._runRepo.updateHeartbeat(this.runId, iso);
+          } else if (typeof this._runRepo.update === 'function') {
+            this._runRepo.update(this.runId, { last_heartbeat_at: iso });
+          }
+        } catch {
+          // Suppress DB heartbeat error
+        }
+      }
+    }
+    this.emit('heartbeat', { runId: this.runId, timestamp });
   }
 
   public markTimeout(): void {
@@ -174,20 +203,27 @@ export class ExecutionStreamRecorder extends EventEmitter {
       });
     }
 
+    // Initialize initial heartbeat in DB and memory
+    this.recordHeartbeat(new Date(), true);
+
     // 2. Attach NdjsonParser to stdout
     this._ndjsonParser.on('line', (line: string) => {
+      this.recordHeartbeat();
       if (this._recordRawStdout) {
         this.recordEvent(STANDARD_EVENT_TYPES.STDOUT, { text: line });
       }
     });
 
     this._ndjsonParser.on('event', (parsed: NdjsonParsedEvent) => {
+      const isExplicitHeartbeat = parsed.type === 'heartbeat' || parsed.type === 'ping';
+      this.recordHeartbeat(new Date(), isExplicitHeartbeat);
       if (this._recordParsedEvents) {
         this.recordEvent(parsed.type, parsed.data);
       }
     });
 
     this._ndjsonParser.on('parse_error', (parseError: NdjsonParseErrorEvent) => {
+      this.recordHeartbeat();
       this.recordEvent(STANDARD_EVENT_TYPES.PARSE_ERROR, {
         raw: parseError.raw,
         errorMessage: parseError.errorMessage,
@@ -196,6 +232,7 @@ export class ExecutionStreamRecorder extends EventEmitter {
 
     if (this._handle.child.stdout) {
       this._handle.child.stdout.on('data', (chunk: Buffer) => {
+        this.recordHeartbeat();
         this._ndjsonParser.feed(chunk);
       });
     }
@@ -203,6 +240,7 @@ export class ExecutionStreamRecorder extends EventEmitter {
     // 3. Attach line-buffering to stderr
     if (this._handle.child.stderr) {
       this._handle.child.stderr.on('data', (chunk: Buffer) => {
+        this.recordHeartbeat();
         const text = typeof chunk === 'string' ? chunk : this._stderrDecoder.write(chunk);
         this._stderrBuffer += text;
         this._processStderrBuffer(false);

@@ -917,3 +917,14 @@
 - Migration `015_restart_recovery.sql` và `RecoveryAuditRepository` (`@ai-orchestrator/db`) lưu trữ nhật ký kiểm toán phục hồi.
 - Cung cấp các REST API endpoint: `POST /scheduler/recover`, `GET /scheduler/recovery/status`, `POST /system/recovery`, `GET /system/recovery`.
 - Không thêm dependency bên ngoài mới; tuân thủ TypeScript strict và kiến trúc monorepo.
+
+
+## OPS-004: Kiểm tra process còn sống (PID + heartbeat) — Phân biệt chết vs xong
+- Phân loại liveness thành 5 trạng thái rành mạch: `ALIVE` (PID sống + heartbeat tươi), `UNRESPONSIVE` (PID sống + heartbeat quá hạn), `DEAD` (status active nhưng PID biến mất khỏi OS), `FINISHED` (đã xong với `finished_at`/status terminal), `UNKNOWN`.
+- Tiêu chí cốt lõi "Phân biệt chết vs xong": Run có `finished_at` hoặc status terminal là FINISHED kể cả khi PID biến mất; Run mang status RUNNING/PENDING mà PID biến mất khỏi OS được xác định là DEAD/CRASHED (chết đột ngột).
+- Sử dụng tín hiệu an toàn `process.kill(pid, 0)` trong `isProcessAlive` để kiểm tra tiến trình OS thực tế, xử lý đúng mã lỗi `EPERM` (tiến trình tồn tại dưới user khác) và `ESRCH` (tiến trình không tồn tại).
+- Migration `016_process_heartbeat.sql` bổ sung cột `last_heartbeat_at` và index tra cứu trong bảng `runs`; `RunRepository` hỗ trợ cập nhật và đọc heartbeat.
+- `ExecutionStreamRecorder` và `ExecutionManager` tự động cập nhật timestamp heartbeat trên các chunk stdout/stderr và sự kiện NDJSON (hỗ trợ event `heartbeat`/`ping`).
+- Triển khai `ProcessMonitorService`: cung cấp `checkPid`, `inspectRun`, `recordHeartbeat`, `scanActiveRuns`, hỗ trợ background watchdog loop và tự động reconcile các tiến trình chết (chuyển sang `ERROR`, requeue hoặc fail task, giải phóng lock/quota).
+- Mở rộng `TaskScheduler` và `RunService` tích hợp `processMonitor`, bổ sung các REST API endpoint: `GET/POST /runs/:id/liveness`, `POST /runs/:id/heartbeat`, `POST /runs/:id/reconcile`, `GET/POST /system/processes/liveness`, `POST /system/processes/reconcile`.
+- Không thêm dependency bên ngoài mới; tuân thủ TypeScript `strict: true` và nguyên tắc monorepo.

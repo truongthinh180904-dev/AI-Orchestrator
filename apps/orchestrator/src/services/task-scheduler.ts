@@ -22,6 +22,7 @@ import type { RunService } from './run-service.js';
 import type { ResourceQuotaManager } from './resource-quota-manager.js';
 import type { ExecutionScheduleManager } from './execution-schedule-manager.js';
 import { RecoveryService } from './recovery-service.js';
+import type { ProcessMonitorService } from './process-monitor-service.js';
 
 export const DEFAULT_AGENT_LOCK_ID = 'default_agent';
 
@@ -148,6 +149,10 @@ export class TaskScheduler {
 
   get scheduleManager(): ExecutionScheduleManager | undefined {
     return this.executionScheduleManager;
+  }
+
+  get processMonitor(): ProcessMonitorService {
+    return this.runService.getProcessMonitor();
   }
 
   get isRunning(): boolean {

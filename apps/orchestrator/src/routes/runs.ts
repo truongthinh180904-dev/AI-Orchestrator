@@ -9,6 +9,10 @@ import {
   CreateCheckpointBodySchema,
   CreateReportBodySchema,
   ReportQuerySchema,
+  RunLivenessQuerySchema,
+  ProcessHeartbeatBodySchema,
+  ProcessReconcileBodySchema,
+  ProcessScanQuerySchema,
 } from '../types.js';
 import type { EventRecord, EventFilter } from '@ai-orchestrator/shared';
 
@@ -269,4 +273,64 @@ export const runRoutes: FastifyPluginAsync<RunRoutesOptions> = async (fastify, o
 
   fastify.post('/runs/:id/reports', handleCreateRunReport);
   fastify.post('/api/runs/:id/reports', handleCreateRunReport);
+
+  // GET /runs/:id/liveness (OPS-004: Inspect process liveness and heartbeat)
+  const handleGetRunLiveness = async (request: FastifyRequest) => {
+    const params = RunParamsSchema.parse(request.params);
+    const query = RunLivenessQuerySchema.parse(request.query ?? {});
+    const inspection = runService.checkLiveness(params.id, {
+      heartbeatTimeoutMs: query.timeoutMs,
+    });
+    return { data: inspection };
+  };
+
+  fastify.get('/runs/:id/liveness', handleGetRunLiveness);
+  fastify.get('/api/runs/:id/liveness', handleGetRunLiveness);
+
+  // POST /runs/:id/heartbeat (OPS-004: Touch heartbeat for a run)
+  const handleTouchHeartbeat = async (request: FastifyRequest) => {
+    const params = RunParamsSchema.parse(request.params);
+    const body = ProcessHeartbeatBodySchema.parse(request.body ?? {});
+    const result = runService.recordHeartbeat(params.id, body.timestamp);
+    return { data: result };
+  };
+
+  fastify.post('/runs/:id/heartbeat', handleTouchHeartbeat);
+  fastify.post('/api/runs/:id/heartbeat', handleTouchHeartbeat);
+
+  // POST /runs/:id/reconcile (OPS-004: Reconcile crashed run if dead)
+  const handleReconcileRun = async (request: FastifyRequest) => {
+    const params = RunParamsSchema.parse(request.params);
+    const body = ProcessReconcileBodySchema.parse(request.body ?? {});
+    const result = runService.reconcileCrashedRun(params.id, { reason: body.reason });
+    return { data: result };
+  };
+
+  fastify.post('/runs/:id/reconcile', handleReconcileRun);
+  fastify.post('/api/runs/:id/reconcile', handleReconcileRun);
+
+  // GET /system/processes/liveness (OPS-004: Scan all active runs)
+  const handleScanProcesses = async (request: FastifyRequest) => {
+    const query = ProcessScanQuerySchema.parse(request.query ?? {});
+    const summary = runService.scanProcesses(query);
+    return { data: summary };
+  };
+
+  fastify.get('/system/processes/liveness', handleScanProcesses);
+  fastify.get('/api/system/processes/liveness', handleScanProcesses);
+  fastify.get('/system/processes', handleScanProcesses);
+  fastify.get('/api/system/processes', handleScanProcesses);
+
+  // POST /system/processes/reconcile (OPS-004: Scan and auto-reconcile all dead runs)
+  const handleReconcileAllDead = async (request: FastifyRequest) => {
+    const query = ProcessScanQuerySchema.parse(request.query ?? {});
+    const summary = runService.scanProcesses({
+      ...query,
+      autoReconcile: true,
+    });
+    return { data: summary };
+  };
+
+  fastify.post('/system/processes/reconcile', handleReconcileAllDead);
+  fastify.post('/api/system/processes/reconcile', handleReconcileAllDead);
 };

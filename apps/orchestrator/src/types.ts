@@ -29,6 +29,8 @@ import type { FeatureReleaseService } from './services/feature-release-service.j
 import type { ResourceQuotaManager } from './services/resource-quota-manager.js';
 import type { ExecutionScheduleManager } from './services/execution-schedule-manager.js';
 import type { RecoveryService } from './services/recovery-service.js';
+import type { ProcessMonitorService } from './services/process-monitor-service.js';
+import type { RunService } from './services/run-service.js';
 
 export const ImportRequestSchema = z.object({
   filePath: z.string().optional(),
@@ -102,6 +104,43 @@ export const RunParamsSchema = z.object({
   id: z.string().min(1, 'Run ID is required'),
 });
 export type RunParamsInput = z.infer<typeof RunParamsSchema>;
+
+export const RunLivenessQuerySchema = z.object({
+  timeoutMs: z.coerce.number().int().positive().optional(),
+});
+export type RunLivenessQueryInput = z.infer<typeof RunLivenessQuerySchema>;
+
+export const ProcessHeartbeatBodySchema = z.object({
+  timestamp: z.string().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+export type ProcessHeartbeatBodyInput = z.infer<typeof ProcessHeartbeatBodySchema>;
+
+export const ProcessReconcileBodySchema = z.object({
+  reason: z.string().optional(),
+});
+export type ProcessReconcileBodyInput = z.infer<typeof ProcessReconcileBodySchema>;
+
+export const ProcessScanQuerySchema = z.object({
+  heartbeatTimeoutMs: z.coerce.number().int().positive().optional(),
+  autoReconcile: z
+    .union([z.boolean(), z.string()])
+    .optional()
+    .transform((val) => {
+      if (val === undefined) return false;
+      if (typeof val === 'boolean') return val;
+      return val === 'true' || val === '1';
+    }),
+  autoTerminateUnresponsive: z
+    .union([z.boolean(), z.string()])
+    .optional()
+    .transform((val) => {
+      if (val === undefined) return false;
+      if (typeof val === 'boolean') return val;
+      return val === 'true' || val === '1';
+    }),
+});
+export type ProcessScanQueryInput = z.infer<typeof ProcessScanQuerySchema>;
 
 export const RunStreamQuerySchema = z.object({
   after_seq: z.coerce.number().int().nonnegative().optional(),
@@ -257,5 +296,7 @@ export interface BuildServerOptions {
   resourceQuotaManager?: ResourceQuotaManager;
   executionScheduleManager?: ExecutionScheduleManager;
   recoveryService?: RecoveryService;
+  processMonitorService?: ProcessMonitorService;
+  runService?: RunService;
   autoRecover?: boolean;
 }

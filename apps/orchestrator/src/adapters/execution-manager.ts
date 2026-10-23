@@ -4,6 +4,7 @@ import {
   type ProcessExitResult,
   type TerminateProcessOptions,
   STANDARD_EVENT_TYPES,
+  isProcessAlive,
 } from '@ai-orchestrator/shared';
 import { processAdapter, ProcessAdapter, type ProcessHandle } from './process-adapter.js';
 import {
@@ -62,8 +63,11 @@ export interface ManagedExecution {
   readonly gracePeriodMs: number;
   readonly isTimeout: boolean;
   readonly isCancelled: boolean;
+  readonly lastHeartbeatAt: Date;
 
   isRunning(): boolean;
+  isAlive(): boolean;
+  recordHeartbeat(timestamp?: Date): void;
   stop(options?: StopRunOptions): Promise<boolean>;
   waitForCompletion(): Promise<ExecutionCompletionResult | ProcessExitResult>;
 }
@@ -231,8 +235,17 @@ export class ExecutionManager extends EventEmitter {
       get isCancelled() {
         return isCancelled;
       },
+      get lastHeartbeatAt(): Date {
+        return recorder?.lastHeartbeatAt ?? startedAt;
+      },
       isRunning(): boolean {
         return handle.isRunning();
+      },
+      isAlive(): boolean {
+        return handle.isRunning() && isProcessAlive(handle.pid);
+      },
+      recordHeartbeat(timestamp?: Date): void {
+        recorder?.recordHeartbeat(timestamp, true);
       },
       async stop(stopOptions?: StopRunOptions): Promise<boolean> {
         if (!handle.isRunning()) {
@@ -312,6 +325,19 @@ export class ExecutionManager extends EventEmitter {
   isRunning(runId: string): boolean {
     const execution = this._runs.get(runId);
     return execution ? execution.isRunning() : false;
+  }
+
+  getHeartbeat(runId: string): Date | undefined {
+    return this._runs.get(runId)?.lastHeartbeatAt;
+  }
+
+  recordHeartbeat(runId: string, timestamp?: Date): boolean {
+    const execution = this._runs.get(runId);
+    if (!execution) {
+      return false;
+    }
+    execution.recordHeartbeat(timestamp);
+    return true;
   }
 
   listRunning(): ManagedExecution[] {

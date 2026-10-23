@@ -22,6 +22,7 @@ export * from './services/quality-gate-service.js';
 export * from './services/resource-quota-manager.js';
 export * from './services/execution-schedule-manager.js';
 export * from './services/recovery-service.js';
+export * from './services/process-monitor-service.js';
 export * from './routes/runs.js';
 export * from './routes/scheduler.js';
 export * from './routes/plans.js';

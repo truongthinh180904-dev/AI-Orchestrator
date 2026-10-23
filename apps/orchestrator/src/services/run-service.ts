@@ -21,6 +21,9 @@ import {
   type Report,
   type CreateReportInput,
   type ReportFilter,
+  type ProcessStateInspection,
+  type ProcessScanOptions,
+  type ProcessScanSummary,
 } from '@ai-orchestrator/shared';
 import {
   ExecutionManager,
@@ -30,6 +33,7 @@ import {
 import type { RepositoryRegistry } from '../adapters/repository-registry.js';
 import { getOrchestratorConfig } from '../config.js';
 import { TaskHistoryService } from './task-history-service.js';
+import { ProcessMonitorService } from './process-monitor-service.js';
 
 export interface RunServiceOptions {
   db: Database.Database;
@@ -52,6 +56,7 @@ export class RunService {
   private readonly repositoryRegistry?: RepositoryRegistry;
   private readonly historyService: TaskHistoryService;
   private readonly config: Partial<Env>;
+  private readonly processMonitor: ProcessMonitorService;
 
   constructor(options: RunServiceOptions) {
     this.db = options.db;
@@ -62,6 +67,14 @@ export class RunService {
     this.historyService = new TaskHistoryService({ db: this.db });
     this.executionManager = options.executionManager ?? defaultExecutionManager;
     this.repositoryRegistry = options.repositoryRegistry;
+    this.processMonitor = new ProcessMonitorService({
+      db: this.db,
+      runRepo: this.runRepo,
+      taskRepo: this.taskRepo,
+      lockRepo: this.lockRepo,
+      eventRepo: this.eventRepo,
+      executionManager: this.executionManager,
+    });
 
     let config: Partial<Env> = options.config ?? {};
     if (!options.config) {
@@ -79,6 +92,32 @@ export class RunService {
 
   getExecutionManager(): ExecutionManager {
     return this.executionManager;
+  }
+
+  getProcessMonitor(): ProcessMonitorService {
+    return this.processMonitor;
+  }
+
+  checkLiveness(
+    runId: string,
+    options?: { heartbeatTimeoutMs?: number; now?: number },
+  ): ProcessStateInspection {
+    return this.processMonitor.inspectRun(runId, options);
+  }
+
+  recordHeartbeat(
+    runId: string,
+    timestamp?: string | Date,
+  ): { success: boolean; lastHeartbeatAt: string } {
+    return this.processMonitor.recordHeartbeat(runId, timestamp);
+  }
+
+  scanProcesses(options?: ProcessScanOptions): ProcessScanSummary {
+    return this.processMonitor.scanActiveRuns(options);
+  }
+
+  reconcileCrashedRun(runId: string, options?: { reason?: string }) {
+    return this.processMonitor.reconcileCrashedRun(runId, options);
   }
 
   getManagedExecution(runId: string): ManagedExecution | undefined {
