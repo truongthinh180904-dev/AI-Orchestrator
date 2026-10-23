@@ -22,6 +22,17 @@ import {
   type QualityCommandRecord,
   type ReviewFindingRecord,
   type SecurityCheckResult,
+  type SchedulerStatus,
+  type ScheduleStepResult,
+  type ScheduleNextOptions,
+  type Plan,
+  type PlanFilter,
+  type PlanReviewSummary,
+  type ApprovePlanInput,
+  type RejectPlanInput,
+  type ExecutePlanInput,
+  type Run,
+  type TaskStatus,
 } from '@ai-orchestrator/shared';
 
 export type StreamConnectionState =
@@ -439,6 +450,185 @@ export class ApiClient {
     return this.request<{ status: string; timestamp?: string }>('/api/health', {
       method: 'GET',
     });
+  }
+
+  // --- UI-007: Scheduler Controls (ORC-003) ---
+
+  async getSchedulerStatus(): Promise<SchedulerStatus> {
+    return this.request<SchedulerStatus>('/api/scheduler/status', {
+      method: 'GET',
+    });
+  }
+
+  async startScheduler(
+    options?: ScheduleNextOptions,
+  ): Promise<{ started: boolean; isRunning: boolean }> {
+    return this.request<{ started: boolean; isRunning: boolean }>('/api/scheduler/start', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(options ?? {}),
+    });
+  }
+
+  async pauseScheduler(): Promise<{ paused: boolean; isPaused: boolean }> {
+    return this.request<{ paused: boolean; isPaused: boolean }>('/api/scheduler/pause', {
+      method: 'POST',
+    });
+  }
+
+  async resumeScheduler(): Promise<{ resumed: boolean; isPaused: boolean }> {
+    return this.request<{ resumed: boolean; isPaused: boolean }>('/api/scheduler/resume', {
+      method: 'POST',
+    });
+  }
+
+  async stopScheduler(): Promise<{ stopped: boolean; isRunning: boolean }> {
+    return this.request<{ stopped: boolean; isRunning: boolean }>('/api/scheduler/stop', {
+      method: 'POST',
+    });
+  }
+
+  async stepScheduler(options?: ScheduleNextOptions): Promise<ScheduleStepResult> {
+    return this.request<ScheduleStepResult>('/api/scheduler/next', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(options ?? {}),
+    });
+  }
+
+  async releaseSchedulerLock(): Promise<{ released: boolean; status: SchedulerStatus }> {
+    return this.request<{ released: boolean; status: SchedulerStatus }>(
+      '/api/scheduler/release-lock',
+      {
+        method: 'POST',
+      },
+    );
+  }
+
+  // --- UI-007: Run Controls (AGY-001, ORC-003) ---
+
+  async stopRun(
+    runId: string,
+    options?: { reason?: string; force?: boolean },
+  ): Promise<{ stopped: boolean; run?: Run; message?: string }> {
+    return this.request<{ stopped: boolean; run?: Run; message?: string }>(
+      `/api/runs/${encodeURIComponent(runId)}/stop`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(options ?? {}),
+      },
+    );
+  }
+
+  // --- UI-007: Plan Review & Approval (ORC-007) ---
+
+  async listPlans(filter?: Partial<PlanFilter>): Promise<Plan[]> {
+    const query = new URLSearchParams();
+    if (filter?.feature_id) query.set('feature_id', filter.feature_id);
+    if (filter?.status) query.set('status', filter.status);
+    if (filter?.repository) query.set('repository', filter.repository);
+    const qs = query.toString();
+    return this.request<Plan[]>(`/api/plans${qs ? `?${qs}` : ''}`, {
+      method: 'GET',
+    });
+  }
+
+  async getPlan(id: string): Promise<Plan> {
+    return this.request<Plan>(`/api/plans/${encodeURIComponent(id)}`, {
+      method: 'GET',
+    });
+  }
+
+  async getPlanReview(id: string): Promise<PlanReviewSummary> {
+    return this.request<PlanReviewSummary>(`/api/plans/${encodeURIComponent(id)}/review`, {
+      method: 'GET',
+    });
+  }
+
+  async approvePlan(id: string, input?: ApprovePlanInput): Promise<Plan> {
+    return this.request<Plan>(`/api/plans/${encodeURIComponent(id)}/approve`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(input ?? {}),
+    });
+  }
+
+  async rejectPlan(id: string, input: RejectPlanInput): Promise<Plan> {
+    return this.request<Plan>(`/api/plans/${encodeURIComponent(id)}/reject`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(input),
+    });
+  }
+
+  async submitPlanForReview(id: string): Promise<Plan> {
+    return this.request<Plan>(`/api/plans/${encodeURIComponent(id)}/submit`, {
+      method: 'POST',
+    });
+  }
+
+  async executePlan(
+    id: string,
+    input?: ExecutePlanInput,
+  ): Promise<{ planId: string; status: string; executionOrder?: string[]; error?: string }> {
+    return this.request<{
+      planId: string;
+      status: string;
+      executionOrder?: string[];
+      error?: string;
+    }>(`/api/plans/${encodeURIComponent(id)}/execute`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(input ?? {}),
+    });
+  }
+
+  // --- UI-007: Task Transition Controls (ORC-001, ORC-004) ---
+
+  async transitionTask(
+    id: string,
+    status: TaskStatus,
+    options?: { reason?: string; runId?: string; incrementAttempt?: boolean; force?: boolean },
+  ): Promise<TaskWithDependencies> {
+    return this.request<TaskWithDependencies>(`/api/tasks/${encodeURIComponent(id)}/transition`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        status,
+        ...options,
+      }),
+    });
+  }
+
+  async retryTask(
+    id: string,
+    options?: { reason?: string; runId?: string; force?: boolean },
+  ): Promise<{ retried: boolean; decision: unknown; task: TaskWithDependencies }> {
+    return this.request<{ retried: boolean; decision: unknown; task: TaskWithDependencies }>(
+      `/api/tasks/${encodeURIComponent(id)}/retry`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(options ?? {}),
+      },
+    );
   }
 
   getRunStreamUrl(runId: string, options?: { afterSeq?: number; live?: boolean }): string {

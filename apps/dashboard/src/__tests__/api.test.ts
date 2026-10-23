@@ -369,4 +369,152 @@ describe('ApiClient', () => {
 
     unsubscribe();
   });
+
+  describe('UI-007: Controls & Review API Methods', () => {
+    it('getSchedulerStatus calls GET /api/scheduler/status', async () => {
+      const mockStatus = {
+        isRunning: true,
+        isPaused: false,
+        activeLock: null,
+        activeTaskId: 'TSK-1',
+        activeRunId: 'RUN-1',
+        readyTasksCount: 3,
+      };
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ data: mockStatus }),
+      });
+
+      const res = await client.getSchedulerStatus();
+      expect(res).toEqual(mockStatus);
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:3000/api/scheduler/status',
+        expect.objectContaining({ method: 'GET' }),
+      );
+    });
+
+    it('pauseScheduler and resumeScheduler call POST endpoints', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ data: { paused: true, isPaused: true } }),
+      });
+
+      const pauseRes = await client.pauseScheduler();
+      expect(pauseRes).toEqual({ paused: true, isPaused: true });
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:3000/api/scheduler/pause',
+        expect.objectContaining({ method: 'POST' }),
+      );
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ data: { resumed: true, isPaused: false } }),
+      });
+
+      const resumeRes = await client.resumeScheduler();
+      expect(resumeRes).toEqual({ resumed: true, isPaused: false });
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:3000/api/scheduler/resume',
+        expect.objectContaining({ method: 'POST' }),
+      );
+    });
+
+    it('stopScheduler calls POST /api/scheduler/stop', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ data: { stopped: true, isRunning: false } }),
+      });
+
+      const res = await client.stopScheduler();
+      expect(res).toEqual({ stopped: true, isRunning: false });
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:3000/api/scheduler/stop',
+        expect.objectContaining({ method: 'POST' }),
+      );
+    });
+
+    it('stopRun calls POST /api/runs/:id/stop with reason', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ data: { stopped: true } }),
+      });
+
+      const res = await client.stopRun('run-99', { reason: 'User test stop' });
+      expect(res.stopped).toBe(true);
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:3000/api/runs/run-99/stop',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ reason: 'User test stop' }),
+        }),
+      );
+    });
+
+    it('approvePlan calls POST /api/plans/:id/approve', async () => {
+      const mockPlan = { id: 'plan-1', status: 'APPROVED', title: 'Plan 1' };
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ data: mockPlan }),
+      });
+
+      const res = await client.approvePlan('plan-1', {
+        approved_by: 'lead-reviewer',
+        comments: 'LGTM',
+      });
+      expect(res).toEqual(mockPlan);
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:3000/api/plans/plan-1/approve',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ approved_by: 'lead-reviewer', comments: 'LGTM' }),
+        }),
+      );
+    });
+
+    it('rejectPlan calls POST /api/plans/:id/reject with reason', async () => {
+      const mockPlan = { id: 'plan-1', status: 'REJECTED', title: 'Plan 1' };
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ data: mockPlan }),
+      });
+
+      const res = await client.rejectPlan('plan-1', {
+        reason: 'Scope too broad',
+        rejected_by: 'reviewer',
+      });
+      expect(res).toEqual(mockPlan);
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:3000/api/plans/plan-1/reject',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ reason: 'Scope too broad', rejected_by: 'reviewer' }),
+        }),
+      );
+    });
+
+    it('executePlan calls POST /api/plans/:id/execute', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ data: { planId: 'plan-1', status: 'EXECUTING' } }),
+      });
+
+      const res = await client.executePlan('plan-1', { autoStart: true });
+      expect(res.status).toBe('EXECUTING');
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:3000/api/plans/plan-1/execute',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ autoStart: true }),
+        }),
+      );
+    });
+  });
 });

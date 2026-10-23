@@ -18,3 +18,4 @@ export * from './components/TaskDetail.js';
 export * from './components/LiveLogViewer.js';
 export * from './components/DiffViewer.js';
 export * from './components/TestReportReviewFindings.js';
+export * from './components/SystemControls.js';

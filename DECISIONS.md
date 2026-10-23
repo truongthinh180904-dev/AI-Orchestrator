@@ -868,3 +868,13 @@
 - Bổ sung thẻ điều hướng `card-quality` trên trang chủ (`/`).
 - Không thêm dependency bên ngoài mới; tuân thủ TypeScript `strict: true` và nguyên tắc tách bạch rõ ràng giữa frontend hiển thị và backend orchestrator.
 
+
+## UI-007: Pause/Resume/Stop/Approve — Điều khiển backend thật
+- Mở rộng `ApiClient` (`apps/dashboard/src/lib/api.ts`) với đầy đủ phương thức điều khiển: `getSchedulerStatus`, `startScheduler`, `pauseScheduler`, `resumeScheduler`, `stopScheduler`, `stepScheduler`, `releaseSchedulerLock`, `stopRun`, `listPlans`, `getPlan`, `getPlanReview`, `approvePlan`, `rejectPlan`, `submitPlanForReview`, `executePlan`, `transitionTask`, `retryTask`.
+- Xây dựng component `SystemControls` (`apps/dashboard/src/components/SystemControls.tsx`) quản trị tập trung toàn bộ lệnh vận hành hệ thống.
+- Bảng điều khiển Scheduler: hiển thị live status badge (RUNNING/PAUSED/IDLE), Agent Lock info (PID, task, acquired_at) và số task READY; cung cấp các nút Pause, Resume, Start, Step Next, Release Lock.
+- Bắt buộc xác nhận trước khi Stop: xây dựng modal hộp thoại xác nhận (`modal-confirm-stop`) yêu cầu nhập lý do và cờ force trước khi gửi lệnh dừng Scheduler hoặc Run.
+- Bảng thẩm định Kế hoạch (ORC-007): thực thi nghiêm ngặt quy tắc cốt lõi "Chưa duyệt → không thực thi" (`banner-approval-rule`), hiển thị DAG topological stages, scope files, warnings và vô hiệu hóa nút Execute khi chưa `APPROVED`.
+- Thao tác phê duyệt kế hoạch: form phê duyệt (`btn-approve-plan`) với reviewer name/comments, form từ chối (`btn-reject-plan`) bắt buộc lý do, gửi lại review (`btn-submit-plan`) và thực thi kế hoạch (`btn-execute-plan`).
+- Trạng thái điều khiển an toàn: toàn bộ nút bấm tự động disabled khi đang gửi request (`isSubmitting`), hiển thị banner lỗi và thông báo thành công trực quan.
+- Tích hợp route `/controls` (`apps/dashboard/src/app/controls/page.tsx`), navigation và re-export tại root index; không thêm dependency mới; tuân thủ TypeScript `strict: true`.
