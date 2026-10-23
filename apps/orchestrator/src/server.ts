@@ -30,6 +30,9 @@ import { planRoutes } from './routes/plans.js';
 import { qualityRoutes } from './routes/quality.js';
 import { quotaRoutes } from './routes/quota.js';
 import { scheduleRoutes } from './routes/schedule.js';
+import { systemResourceRoutes } from './routes/system-resources.js';
+import { SystemResourceMonitor } from './services/system-resource-monitor.js';
+import { SystemResourceRepository } from '@ai-orchestrator/db';
 
 export async function buildServer(options: BuildServerOptions): Promise<FastifyInstance> {
   const { db, logger = false } = options;
@@ -74,6 +77,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           statusCode = 422;
           break;
         case 'RESOURCE_LIMIT_EXCEEDED':
+        case 'SYSTEM_RESOURCE_EXCEEDED':
           statusCode = 429;
           break;
         case 'TASK_ALREADY_EXISTS':
@@ -214,10 +218,17 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       config: options.config,
     });
 
+  const systemResourceMonitor =
+    options.systemResourceMonitor ??
+    new SystemResourceMonitor({
+      db,
+    });
+
   const resourceQuotaManager =
     options.resourceQuotaManager ??
     new ResourceQuotaManager({
       db,
+      systemResourceMonitor,
     });
 
   const executionScheduleManager =
@@ -255,6 +266,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       runService,
       resourceQuotaManager,
       executionScheduleManager,
+      systemResourceMonitor,
       recoveryService,
     });
 
@@ -333,6 +345,10 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   await server.register(runRoutes, { runService });
   await server.register(schedulerRoutes, { scheduler: taskScheduler });
   await server.register(quotaRoutes, { quotaManager: resourceQuotaManager });
+  await server.register(systemResourceRoutes, {
+    resourceMonitor: systemResourceMonitor,
+    resourceRepo: new SystemResourceRepository(db),
+  });
   await server.register(scheduleRoutes, { scheduleManager: executionScheduleManager });
   await server.register(planRoutes, { plannerService });
   await server.register(qualityRoutes, {

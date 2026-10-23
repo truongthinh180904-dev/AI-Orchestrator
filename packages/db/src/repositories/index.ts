@@ -16,3 +16,4 @@ export * from './feature-release-repository.js';
 export * from './quota-event-repository.js';
 export * from './execution-schedule-repository.js';
 export * from './recovery-audit-repository.js';
+export * from './system-resource-repository.js';

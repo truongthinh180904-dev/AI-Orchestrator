@@ -30,6 +30,7 @@ import type { ResourceQuotaManager } from './services/resource-quota-manager.js'
 import type { ExecutionScheduleManager } from './services/execution-schedule-manager.js';
 import type { RecoveryService } from './services/recovery-service.js';
 import type { ProcessMonitorService } from './services/process-monitor-service.js';
+import type { SystemResourceMonitor } from './services/system-resource-monitor.js';
 import type { RunService } from './services/run-service.js';
 
 export const ImportRequestSchema = z.object({
@@ -297,6 +298,7 @@ export interface BuildServerOptions {
   executionScheduleManager?: ExecutionScheduleManager;
   recoveryService?: RecoveryService;
   processMonitorService?: ProcessMonitorService;
+  systemResourceMonitor?: SystemResourceMonitor;
   runService?: RunService;
   autoRecover?: boolean;
 }

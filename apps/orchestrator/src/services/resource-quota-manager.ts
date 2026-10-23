@@ -10,11 +10,13 @@ import {
   logger,
 } from '@ai-orchestrator/shared';
 import { QuotaEventRepository } from '@ai-orchestrator/db';
+import type { SystemResourceMonitor } from './system-resource-monitor.js';
 
 export interface ResourceQuotaManagerOptions {
   db?: Database.Database;
   config?: ResourceQuotaConfigInput;
   clock?: () => number;
+  systemResourceMonitor?: SystemResourceMonitor;
 }
 
 export class ResourceQuotaManager {
@@ -22,6 +24,7 @@ export class ResourceQuotaManager {
   private readonly db?: Database.Database;
   private readonly quotaEventRepo?: QuotaEventRepository;
   private readonly clock: () => number;
+  private systemResourceMonitor?: SystemResourceMonitor;
 
   private activeTasks: Map<string, { runId?: string; acquiredAt: number }> = new Map();
   private consecutiveQuotaHits = 0;
@@ -33,11 +36,20 @@ export class ResourceQuotaManager {
   constructor(options?: ResourceQuotaManagerOptions) {
     this.config = ResourceQuotaConfigSchema.parse(options?.config ?? {});
     this.clock = options?.clock ?? (() => Date.now());
+    this.systemResourceMonitor = options?.systemResourceMonitor;
 
     if (options?.db) {
       this.db = options.db;
       this.quotaEventRepo = new QuotaEventRepository(options.db);
     }
+  }
+
+  get systemMonitor(): SystemResourceMonitor | undefined {
+    return this.systemResourceMonitor;
+  }
+
+  setSystemResourceMonitor(monitor?: SystemResourceMonitor): void {
+    this.systemResourceMonitor = monitor;
   }
 
   get currentConfig(): ResourceQuotaConfig {
@@ -89,6 +101,14 @@ export class ResourceQuotaManager {
    */
   canAcquire(context?: { taskId?: string }): ResourceAcquisitionResult {
     const now = this.clock();
+
+    // 0. System resource check (CPU/RAM/Disk limits)
+    if (this.systemResourceMonitor) {
+      const sysCheck = this.systemResourceMonitor.canAcquire();
+      if (!sysCheck.allowed) {
+        return sysCheck;
+      }
+    }
 
     // 1. Circuit breaker check (too many consecutive quota hits)
     if (this.circuitBreakerTripped) {
@@ -394,6 +414,7 @@ export class ResourceQuotaManager {
       windowRemainingQuota: Math.max(0, this.config.max_runs_per_window - this.windowRunTimestamps.length),
       windowResetAt,
       config: this.currentConfig,
+      systemResources: this.systemResourceMonitor?.getLatestSnapshot(),
     };
   }
 

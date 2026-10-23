@@ -28,9 +28,10 @@ describe('Migration Runner', () => {
       expect(firstRun).toContain('014_execution_schedules.sql');
       expect(firstRun).toContain('015_restart_recovery.sql');
       expect(firstRun).toContain('016_process_heartbeat.sql');
+      expect(firstRun).toContain('017_system_resources.sql');
 
       const appliedAfterFirst = getAppliedMigrations(db);
-      expect(appliedAfterFirst.length).toBe(16);
+      expect(appliedAfterFirst.length).toBe(17);
       expect(appliedAfterFirst[0]?.name).toBe('001_initial_schema.sql');
       expect(appliedAfterFirst[1]?.name).toBe('002_agent_lock.sql');
       expect(appliedAfterFirst[2]?.name).toBe('003_checkpoints.sql');
@@ -47,6 +48,7 @@ describe('Migration Runner', () => {
       expect(appliedAfterFirst[13]?.name).toBe('014_execution_schedules.sql');
       expect(appliedAfterFirst[14]?.name).toBe('015_restart_recovery.sql');
       expect(appliedAfterFirst[15]?.name).toBe('016_process_heartbeat.sql');
+      expect(appliedAfterFirst[16]?.name).toBe('017_system_resources.sql');
       expect(appliedAfterFirst[0]?.applied_at).toBeTruthy();
       expect(appliedAfterFirst[1]?.applied_at).toBeTruthy();
       expect(appliedAfterFirst[2]?.applied_at).toBeTruthy();
@@ -63,13 +65,14 @@ describe('Migration Runner', () => {
       expect(appliedAfterFirst[13]?.applied_at).toBeTruthy();
       expect(appliedAfterFirst[14]?.applied_at).toBeTruthy();
       expect(appliedAfterFirst[15]?.applied_at).toBeTruthy();
+      expect(appliedAfterFirst[16]?.applied_at).toBeTruthy();
 
       // Second run: idempotent, returns empty array, no error
       const secondRun = runMigrations(db);
       expect(secondRun).toEqual([]);
 
       const appliedAfterSecond = getAppliedMigrations(db);
-      expect(appliedAfterSecond.length).toBe(16);
+      expect(appliedAfterSecond.length).toBe(17);
     } finally {
       db.close();
     }
@@ -102,6 +105,7 @@ describe('Migration Runner', () => {
       expect(tableNames).toContain('quota_events');
       expect(tableNames).toContain('execution_schedules');
       expect(tableNames).toContain('schedule_events');
+      expect(tableNames).toContain('system_resource_events');
     } finally {
       db.close();
     }

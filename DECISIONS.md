@@ -928,3 +928,14 @@
 - Triển khai `ProcessMonitorService`: cung cấp `checkPid`, `inspectRun`, `recordHeartbeat`, `scanActiveRuns`, hỗ trợ background watchdog loop và tự động reconcile các tiến trình chết (chuyển sang `ERROR`, requeue hoặc fail task, giải phóng lock/quota).
 - Mở rộng `TaskScheduler` và `RunService` tích hợp `processMonitor`, bổ sung các REST API endpoint: `GET/POST /runs/:id/liveness`, `POST /runs/:id/heartbeat`, `POST /runs/:id/reconcile`, `GET/POST /system/processes/liveness`, `POST /system/processes/reconcile`.
 - Không thêm dependency bên ngoài mới; tuân thủ TypeScript `strict: true` và nguyên tắc monorepo.
+
+
+## OPS-005: Giám sát CPU/RAM/disk, ngưỡng cảnh báo/dừng — Vượt ngưỡng → dừng nhận task
+- Định nghĩa `SystemResourceThresholdsSchema` (`@ai-orchestrator/shared`): phân tầng ngưỡng cảnh báo (`cpu_warning_percent: 80%`, `memory_warning_percent: 85%`, `disk_warning_percent: 85%`) và ngưỡng dừng (`cpu_critical_percent: 90%`, `memory_critical_percent: 92%`, `disk_critical_percent: 90%`, `min_free_memory_bytes: 256MB`, `min_free_disk_bytes: 1GB`).
+- Phân loại trạng thái sức khỏe tài nguyên `ResourceHealthStatus`: `OK` (bình thường), `WARNING` (cảnh báo nhưng vẫn cho phép nhận task), `CRITICAL` (quá tải, kích hoạt dừng nhận task).
+- Thu thập metrics hệ thống bằng các API chuẩn của Node.js không thêm dependency ngoài: `os.totalmem`/`freemem` (RAM), `fs.statfsSync` (Disk dung lượng/trống), delta CPU ticks + `os.loadavg` (CPU).
+- Migration `017_system_resources.sql` và `SystemResourceRepository` (`@ai-orchestrator/db`) lưu vết và kiểm toán các sự kiện `RESOURCE_WARNING`, `RESOURCE_CRITICAL`, `RESOURCE_RECOVERED`, `CONFIG_UPDATED`.
+- Triển khai `SystemResourceMonitor` (`apps/orchestrator/src/services/system-resource-monitor.ts`) với cơ chế tự phục hồi: khi tài nguyên hạ nhiệt dưới ngưỡng, tự động chuyển từ `CRITICAL` sang `OK` và cho phép nhận task trở lại.
+- Tích hợp vào `ResourceQuotaManager` và `TaskScheduler`: `canAcquire()` và `acquireNextTask()` từ chối cấp task với reason `SYSTEM_RESOURCE_EXCEEDED` khi hệ thống quá tải; `step()` an toàn bỏ qua lượt chạy.
+- Cung cấp các REST API endpoint: `GET /system/resources`, `GET /system/resources/snapshot`, `PATCH /system/resources/thresholds`, `POST /system/resources/sample`, `GET /system/resources/events`.
+- Tuân thủ TypeScript `strict: true`, không thêm dependency mới; đáp ứng 100% tiêu chí nghiệm thu "Vượt ngưỡng → dừng nhận task".

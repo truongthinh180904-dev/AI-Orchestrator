@@ -23,6 +23,7 @@ import type { ResourceQuotaManager } from './resource-quota-manager.js';
 import type { ExecutionScheduleManager } from './execution-schedule-manager.js';
 import { RecoveryService } from './recovery-service.js';
 import type { ProcessMonitorService } from './process-monitor-service.js';
+import type { SystemResourceMonitor } from './system-resource-monitor.js';
 
 export const DEFAULT_AGENT_LOCK_ID = 'default_agent';
 
@@ -44,7 +45,8 @@ export interface AcquireTaskResult {
     | 'CONCURRENCY_LIMIT_EXCEEDED'
     | 'ACTIVE_RUN_EXISTS'
     | 'RESOURCE_QUOTA_BLOCKED'
-    | 'OUTSIDE_SCHEDULE_WINDOW';
+    | 'OUTSIDE_SCHEDULE_WINDOW'
+    | 'SYSTEM_RESOURCE_EXCEEDED';
   activeTaskId?: string;
   quotaResult?: ResourceAcquisitionResult;
   scheduleResult?: ScheduleEvaluationResult;
@@ -56,6 +58,7 @@ export interface TaskSchedulerOptions {
   qualityGateService?: QualityGateService;
   resourceQuotaManager?: ResourceQuotaManager;
   executionScheduleManager?: ExecutionScheduleManager;
+  systemResourceMonitor?: SystemResourceMonitor;
   lockId?: string;
   autoVerify?: boolean;
   retryPolicy?: RetryPolicy | RetryPolicyInput;
@@ -75,6 +78,7 @@ export class TaskScheduler {
   private readonly qualityGateService?: QualityGateService;
   private readonly resourceQuotaManager?: ResourceQuotaManager;
   private readonly executionScheduleManager?: ExecutionScheduleManager;
+  private readonly systemResourceMonitor?: SystemResourceMonitor;
   private readonly lockId: string;
   private readonly autoVerifyDefault: boolean;
   private readonly retryPolicy: RetryPolicy;
@@ -93,6 +97,10 @@ export class TaskScheduler {
     this.qualityGateService = options.qualityGateService;
     this.resourceQuotaManager = options.resourceQuotaManager;
     this.executionScheduleManager = options.executionScheduleManager;
+    this.systemResourceMonitor = options.systemResourceMonitor;
+    if (this.resourceQuotaManager && this.systemResourceMonitor && !this.resourceQuotaManager.systemMonitor) {
+      this.resourceQuotaManager.setSystemResourceMonitor(this.systemResourceMonitor);
+    }
     this.taskRepo = new TaskRepository(this.db);
     this.lockRepo = new AgentLockRepository(this.db);
     this.runRepo = new RunRepository(this.db);
@@ -155,6 +163,10 @@ export class TaskScheduler {
     return this.runService.getProcessMonitor();
   }
 
+  get systemMonitor(): SystemResourceMonitor | undefined {
+    return this.systemResourceMonitor ?? this.resourceQuotaManager?.systemMonitor;
+  }
+
   get isRunning(): boolean {
     return this._isRunning || Boolean(this._activeTaskId);
   }
@@ -198,9 +210,11 @@ export class TaskScheduler {
         return {
           acquired: false,
           reason:
-            check.reason === 'CONCURRENCY_LIMIT_REACHED'
-              ? 'CONCURRENCY_LIMIT_EXCEEDED'
-              : 'RESOURCE_QUOTA_BLOCKED',
+            check.reason === 'SYSTEM_RESOURCE_EXCEEDED'
+              ? 'SYSTEM_RESOURCE_EXCEEDED'
+              : check.reason === 'CONCURRENCY_LIMIT_REACHED'
+                ? 'CONCURRENCY_LIMIT_EXCEEDED'
+                : 'RESOURCE_QUOTA_BLOCKED',
           activeTaskId: check.activeTaskId,
           quotaResult: check,
         };
@@ -286,9 +300,11 @@ export class TaskScheduler {
           return {
             acquired: false,
             reason:
-              check.reason === 'CONCURRENCY_LIMIT_REACHED'
-                ? ('CONCURRENCY_LIMIT_EXCEEDED' as const)
-                : ('RESOURCE_QUOTA_BLOCKED' as const),
+              check.reason === 'SYSTEM_RESOURCE_EXCEEDED'
+                ? ('SYSTEM_RESOURCE_EXCEEDED' as const)
+                : check.reason === 'CONCURRENCY_LIMIT_REACHED'
+                  ? ('CONCURRENCY_LIMIT_EXCEEDED' as const)
+                  : ('RESOURCE_QUOTA_BLOCKED' as const),
             activeTaskId: check.activeTaskId,
             quotaResult: check,
           };

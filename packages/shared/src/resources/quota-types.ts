@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { SystemResourceSnapshot } from './system-resource-types.js';
 
 export const ResourceQuotaConfigSchema = z.object({
   /**
@@ -58,6 +59,7 @@ export const ResourceRejectReasonSchema = z.enum([
   'CIRCUIT_BREAKER_TRIPPED',
   'WINDOW_QUOTA_EXCEEDED',
   'RESOURCE_THROTTLED',
+  'SYSTEM_RESOURCE_EXCEEDED',
 ]);
 
 export type ResourceRejectReason = z.infer<typeof ResourceRejectReasonSchema>;
@@ -89,6 +91,7 @@ export interface ResourceQuotaStatus {
   windowRemainingQuota: number;
   windowResetAt: string;
   config: ResourceQuotaConfig;
+  systemResources?: SystemResourceSnapshot;
 }
 
 export const QuotaEventTypeSchema = z.enum([
