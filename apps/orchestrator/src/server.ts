@@ -11,6 +11,7 @@ import { TaskScheduler } from './services/task-scheduler.js';
 import { PlannerService } from './services/planner-service.js';
 import { QualityConfigService } from './services/quality-config-service.js';
 import { QualityRunner } from './services/quality-runner.js';
+import { ScopeDiffService } from './services/scope-diff-service.js';
 import { createExecutionManager } from './adapters/execution-manager.js';
 import { healthRoutes } from './routes/health.js';
 import { taskRoutes } from './routes/tasks.js';
@@ -190,6 +191,13 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       qualityConfigService,
     });
 
+  const scopeDiffService =
+    options.scopeDiffService ??
+    new ScopeDiffService({
+      db,
+      repositoryRegistry: options.repositoryRegistry,
+    });
+
   // Register routes
   await server.register(healthRoutes);
   await server.register(taskRoutes, { taskService });
@@ -198,7 +206,11 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   await server.register(runRoutes, { runService });
   await server.register(schedulerRoutes, { scheduler: taskScheduler });
   await server.register(planRoutes, { plannerService });
-  await server.register(qualityRoutes, { qualityConfigService, qualityRunner });
+  await server.register(qualityRoutes, {
+    qualityConfigService,
+    qualityRunner,
+    scopeDiffService,
+  });
 
   return server;
 }

@@ -8,14 +8,17 @@ import {
   type QualityCommandDefinition,
   normalizeQualityCommand,
   type ParsedConfig,
+  CompareScopeInputSchema,
   AppError,
 } from '@ai-orchestrator/shared';
 import type { QualityConfigService } from '../services/quality-config-service.js';
 import type { QualityRunner } from '../services/quality-runner.js';
+import type { ScopeDiffService } from '../services/scope-diff-service.js';
 
 export interface QualityRoutesOptions {
   qualityConfigService: QualityConfigService;
   qualityRunner: QualityRunner;
+  scopeDiffService?: ScopeDiffService;
 }
 
 const RepoParamsSchema = z.object({
@@ -60,8 +63,22 @@ const QualityRecordQuerySchema = z.object({
   offset: z.coerce.number().int().nonnegative().optional(),
 });
 
+const TaskScopeQuerySchema = z.object({
+  baseRef: z.string().optional(),
+  targetRef: z.string().optional(),
+  includeUntracked: z
+    .union([z.boolean(), z.string()])
+    .optional()
+    .transform((val) => {
+      if (val === undefined) return true;
+      if (typeof val === 'boolean') return val;
+      return val === 'true' || val === '1';
+    }),
+  runId: z.string().optional(),
+});
+
 export const qualityRoutes: FastifyPluginAsync<QualityRoutesOptions> = async (fastify, opts) => {
-  const { qualityConfigService, qualityRunner } = opts;
+  const { qualityConfigService, qualityRunner, scopeDiffService } = opts;
 
   // GET /repos/:id/quality-config & /api/repos/:id/quality-config
   const handleGetRepoQualityConfig = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
@@ -201,4 +218,45 @@ export const qualityRoutes: FastifyPluginAsync<QualityRoutesOptions> = async (fa
 
   fastify.get('/runs/:id/quality-records', handleGetRunQualityRecords);
   fastify.get('/api/runs/:id/quality-records', handleGetRunQualityRecords);
+
+  // POST /quality/scope-diff & /api/quality/scope-diff
+  const handleCompareScope = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    if (!scopeDiffService) {
+      throw new AppError('SERVICE_UNAVAILABLE', 'Scope diff service is not configured');
+    }
+    const body = CompareScopeInputSchema.parse(request.body ?? {});
+    const result = await scopeDiffService.compareScope(body);
+    return reply.send({ data: result });
+  };
+
+  fastify.post('/quality/scope-diff', handleCompareScope);
+  fastify.post('/api/quality/scope-diff', handleCompareScope);
+
+  // GET /tasks/:id/scope-diff & /api/tasks/:id/scope-diff
+  const handleGetTaskScopeDiff = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    if (!scopeDiffService) {
+      throw new AppError('SERVICE_UNAVAILABLE', 'Scope diff service is not configured');
+    }
+    const params = TaskParamsSchema.parse(request.params);
+    const query = TaskScopeQuerySchema.parse(request.query ?? {});
+    const result = await scopeDiffService.checkTaskScope(params.id, query);
+    return reply.send({ data: result });
+  };
+
+  fastify.get('/tasks/:id/scope-diff', handleGetTaskScopeDiff);
+  fastify.get('/api/tasks/:id/scope-diff', handleGetTaskScopeDiff);
+
+  // GET /tasks/:id/diff & /api/tasks/:id/diff
+  const handleGetTaskDiff = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    if (!scopeDiffService) {
+      throw new AppError('SERVICE_UNAVAILABLE', 'Scope diff service is not configured');
+    }
+    const params = TaskParamsSchema.parse(request.params);
+    const query = TaskScopeQuerySchema.parse(request.query ?? {});
+    const result = await scopeDiffService.getTaskDiff(params.id, query);
+    return reply.send({ data: result });
+  };
+
+  fastify.get('/tasks/:id/diff', handleGetTaskDiff);
+  fastify.get('/api/tasks/:id/diff', handleGetTaskDiff);
 };

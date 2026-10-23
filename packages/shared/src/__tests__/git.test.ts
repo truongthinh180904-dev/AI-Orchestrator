@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AppError } from '../errors.js';
-import { checkRepoClean, getRepoStatus, isRepoClean, parseGitPorcelain } from '../git.js';
+import { checkRepoClean, getGitDiff, getRepoStatus, isRepoClean, parseGitPorcelain } from '../git.js';
 
 describe('git status & checkRepoClean unit tests', () => {
   describe('parseGitPorcelain', () => {
@@ -196,6 +196,66 @@ describe('git status & checkRepoClean unit tests', () => {
 
       const check = await checkRepoClean(tmpDir, { ignoreUntracked: true });
       expect(check.isClean).toBe(true);
+    });
+  });
+
+  describe('getGitDiff', () => {
+    let tmpDir: string;
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'git-diff-test-'));
+      execSync('git init -b main', { cwd: tmpDir, stdio: 'ignore' });
+      execSync('git config user.email "test@example.com"', { cwd: tmpDir, stdio: 'ignore' });
+      execSync('git config user.name "Test User"', { cwd: tmpDir, stdio: 'ignore' });
+    });
+
+    afterEach(() => {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it('returns empty diff for clean repository', async () => {
+      fs.writeFileSync(path.join(tmpDir, 'file.txt'), 'hello');
+      execSync('git add . && git commit -m "initial commit"', { cwd: tmpDir, stdio: 'ignore' });
+
+      const diff = await getGitDiff(tmpDir);
+      expect(diff.changedFiles).toEqual([]);
+      expect(diff.fileDiffs).toEqual([]);
+      expect(diff.rawDiff).toBe('');
+    });
+
+    it('detects modified and untracked files', async () => {
+      fs.writeFileSync(path.join(tmpDir, 'file.txt'), 'line 1\n');
+      execSync('git add . && git commit -m "initial commit"', { cwd: tmpDir, stdio: 'ignore' });
+
+      // Modify existing file
+      fs.writeFileSync(path.join(tmpDir, 'file.txt'), 'line 1\nline 2\n');
+      // Create untracked file
+      fs.writeFileSync(path.join(tmpDir, 'untracked.ts'), 'export const secret = true;\n');
+
+      const diff = await getGitDiff(tmpDir);
+      expect(diff.changedFiles).toContain('file.txt');
+      expect(diff.changedFiles).toContain('untracked.ts');
+      expect(diff.changedFiles).toHaveLength(2);
+
+      const modified = diff.fileDiffs.find((f) => f.path === 'file.txt');
+      expect(modified).toBeDefined();
+      expect(modified?.status).toBe('modified');
+
+      const untracked = diff.fileDiffs.find((f) => f.path === 'untracked.ts');
+      expect(untracked).toBeDefined();
+      expect(untracked?.status).toBe('untracked');
+    });
+
+    it('supports includeUntracked: false', async () => {
+      fs.writeFileSync(path.join(tmpDir, 'file.txt'), 'line 1\n');
+      execSync('git add . && git commit -m "initial commit"', { cwd: tmpDir, stdio: 'ignore' });
+
+      fs.writeFileSync(path.join(tmpDir, 'file.txt'), 'line 1\nmodified\n');
+      fs.writeFileSync(path.join(tmpDir, 'untracked.ts'), 'content\n');
+
+      const diff = await getGitDiff(tmpDir, { includeUntracked: false });
+      expect(diff.changedFiles).toEqual(['file.txt']);
+      expect(diff.fileDiffs).toHaveLength(1);
     });
   });
 });

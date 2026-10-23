@@ -19,6 +19,7 @@ import type { TaskScheduler } from './services/task-scheduler.js';
 import type { PlannerService } from './services/planner-service.js';
 import type { QualityConfigService } from './services/quality-config-service.js';
 import type { QualityRunner } from './services/quality-runner.js';
+import type { ScopeDiffService } from './services/scope-diff-service.js';
 
 export const ImportRequestSchema = z.object({
   filePath: z.string().optional(),
@@ -237,4 +238,5 @@ export interface BuildServerOptions {
   plannerService?: PlannerService;
   qualityConfigService?: QualityConfigService;
   qualityRunner?: QualityRunner;
+  scopeDiffService?: ScopeDiffService;
 }

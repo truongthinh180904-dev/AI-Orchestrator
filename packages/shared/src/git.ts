@@ -1,7 +1,13 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import path from 'node:path';
 import { AppError } from './errors.js';
 import type { WorktreeInfo } from './models/workspace.js';
+import {
+  type FileDiffDetail,
+  parseUnifiedDiff,
+  normalizeScopePath,
+} from './models/quality-scope.js';
 
 export interface GitFileStatus {
   path: string;
@@ -433,3 +439,149 @@ export async function gitWorktreePrune(repoPath: string): Promise<void> {
     );
   }
 }
+
+export interface GitDiffOptions {
+  /** Base commit, branch, or ref (e.g. 'HEAD', 'main', or SHA) */
+  baseRef?: string;
+  /** Target commit, branch, or ref (if omitted, compares against working tree) */
+  targetRef?: string;
+  /** Whether to inspect staged changes only */
+  staged?: boolean;
+  /** Whether to detect and include untracked files (defaults to true) */
+  includeUntracked?: boolean;
+  /** Specific file path filters */
+  paths?: string[];
+}
+
+export interface GitDiffResult {
+  rawDiff: string;
+  changedFiles: string[];
+  fileDiffs: FileDiffDetail[];
+}
+
+/**
+ * Retrieves git diff comparing working tree or commits, including untracked files.
+ */
+export async function getGitDiff(
+  repoPath: string,
+  options?: GitDiffOptions,
+): Promise<GitDiffResult> {
+  if (!fs.existsSync(repoPath)) {
+    throw new AppError('PATH_NOT_FOUND', `Repository path does not exist: ${repoPath}`, {
+      repoPath,
+    });
+  }
+
+  const stat = fs.statSync(repoPath);
+  if (!stat.isDirectory()) {
+    throw new AppError('NOT_A_DIRECTORY', `Repository path is not a directory: ${repoPath}`, {
+      repoPath,
+    });
+  }
+
+  // Check if HEAD exists in this repository
+  const headCheck = await runGitCommand(['rev-parse', '--verify', 'HEAD'], repoPath);
+  const hasHead = headCheck.exitCode === 0;
+
+  const diffArgs = ['diff'];
+
+  if (options?.baseRef && options?.targetRef) {
+    diffArgs.push(options.baseRef, options.targetRef);
+  } else if (options?.baseRef) {
+    diffArgs.push(options.baseRef);
+  } else if (options?.staged) {
+    diffArgs.push('--staged');
+  } else if (hasHead) {
+    // When no specific ref is provided, compare working tree against HEAD
+    diffArgs.push('HEAD');
+  }
+
+  if (options?.paths && options.paths.length > 0) {
+    diffArgs.push('--', ...options.paths);
+  }
+
+  const { stdout: diffStdout, stderr: diffStderr, exitCode: diffExit } = await runGitCommand(
+    diffArgs,
+    repoPath,
+  );
+
+  if (diffExit !== 0) {
+    throw new AppError(
+      'GIT_COMMAND_FAILED',
+      `git diff failed: ${diffStderr.trim() || `Exit code ${diffExit}`}`,
+      { repoPath, diffArgs, stderr: diffStderr, exitCode: diffExit },
+    );
+  }
+
+  let rawDiff = diffStdout;
+  const fileDiffs = parseUnifiedDiff(rawDiff);
+  const changedFileSet = new Set<string>();
+
+  for (const fd of fileDiffs) {
+    changedFileSet.add(normalizeScopePath(fd.path));
+    if (fd.oldPath) {
+      changedFileSet.add(normalizeScopePath(fd.oldPath));
+    }
+  }
+
+  // Include untracked files if requested and no specific targetRef commit was passed
+  const shouldIncludeUntracked = options?.includeUntracked ?? true;
+  if (shouldIncludeUntracked && !options?.targetRef) {
+    const statusResult = await getRepoStatus(repoPath);
+    for (const fileStatus of statusResult.files) {
+      const normPath = normalizeScopePath(fileStatus.path);
+      if (fileStatus.indexStatus === '?' && fileStatus.workTreeStatus === '?') {
+        if (!changedFileSet.has(normPath)) {
+          changedFileSet.add(normPath);
+
+          // Build synthetic file diff for the untracked file
+          const fullPath = path.resolve(repoPath, normPath);
+          try {
+            if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
+              const content = fs.readFileSync(fullPath, 'utf-8');
+              const lines = content.split('\n');
+              const lineCount = lines.length;
+              const patchHeader = [
+                `diff --git a/${normPath} b/${normPath}`,
+                'new file mode 100644',
+                '--- /dev/null',
+                `+++ b/${normPath}`,
+                `@@ -0,0 +1,${lineCount} @@`,
+                ...lines.map((l) => `+${l}`),
+              ].join('\n');
+
+              rawDiff += (rawDiff ? '\n' : '') + patchHeader;
+              fileDiffs.push({
+                path: normPath,
+                status: 'untracked',
+                additions: lineCount,
+                deletions: 0,
+                patch: patchHeader,
+                inScope: true,
+              });
+              continue;
+            }
+          } catch {
+            // If cannot read (e.g. binary or directory), add placeholder
+          }
+
+          fileDiffs.push({
+            path: normPath,
+            status: 'untracked',
+            additions: 0,
+            deletions: 0,
+            patch: '',
+            inScope: true,
+          });
+        }
+      }
+    }
+  }
+
+  return {
+    rawDiff,
+    changedFiles: Array.from(changedFileSet).sort(),
+    fileDiffs,
+  };
+}
+

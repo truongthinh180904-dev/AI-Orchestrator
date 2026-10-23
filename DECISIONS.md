@@ -697,3 +697,13 @@
 - **Báo cáo kiểm định tổng hợp**: Tự động lưu `quality_report` vào bảng `reports` khi có `run_id` hoặc `task_id`.
 - **REST API Endpoints**: Bổ sung `POST /api/quality/run`, `GET /api/quality/records`, `GET /api/quality/records/:id`, `GET /api/tasks/:id/quality-records`, `GET /api/runs/:id/quality-records`.
 - **Dependencies**: Tái sử dụng Zod, better-sqlite3 và Fastify; không thêm dependency bên ngoài mới nào.
+
+## QLT-003: So diff với phạm vi task, liệt kê file ngoài phạm vi — Báo đúng file lạ
+- **Migration 007 & Cột `scope_files`**: Bổ sung cột JSON `scope_files` cho bảng `tasks`, đồng bộ với Planner và PlanOrchestrator khi materialize tasks.
+- **Phân giải phạm vi task**: `ScopeDiffService.resolveTaskScope` ưu tiên `task.scope_files`, tự động fallback sang `plan.tasks` khi task gắn với `plan_id`.
+- **Chuẩn hóa đường dẫn & Khớp mẫu**: `isPathInScope` hỗ trợ khớp chính xác, tiền tố thư mục, và wildcard glob (`*`, `**`) đa nền tảng (POSIX/Windows, loại bỏ `./`).
+- **Phát hiện file lạ ("Báo đúng file lạ")**: `evaluateScopeCompliance` tách bạch `inScopeFiles` và `outOfScopeFiles` (file lạ), tính toán số dòng thêm/bớt và xác định cờ `isScopeClean`.
+- **Tích hợp Git Diff & Untracked Files**: `getGitDiff` gọi `git diff` an toàn qua `spawn` và bổ sung các file untracked (`??`) từ `git status --porcelain` để bắt trọn file lạ mới tạo.
+- **Audit Report trong SQLite**: Tự động lưu báo cáo `scope_diff` vào bảng `reports` khi có `runId` phục vụ Quality Gate (QLT-007) và kiểm toán.
+- **REST API Endpoints**: Cung cấp `POST /api/quality/scope-diff`, `GET /api/tasks/:id/scope-diff`, `GET /api/tasks/:id/diff` phục vụ backend và Diff Viewer UI (UI-005).
+- **Dependencies**: Tái sử dụng các module nội bộ (`better-sqlite3`, `zod`, `Fastify`), không cài thêm thư viện ngoài.

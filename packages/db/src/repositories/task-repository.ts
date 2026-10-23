@@ -24,8 +24,19 @@ function rowToTask(
   row: Record<string, unknown>,
   dependencies: string[] = [],
 ): TaskWithDependencies {
+  let scope_files: unknown = [];
   let acceptance_criteria: unknown = [];
   let test_commands: unknown = [];
+
+  if (typeof row.scope_files === 'string') {
+    try {
+      scope_files = JSON.parse(row.scope_files);
+    } catch {
+      scope_files = [];
+    }
+  } else if (Array.isArray(row.scope_files)) {
+    scope_files = row.scope_files;
+  }
 
   if (typeof row.acceptance_criteria === 'string') {
     try {
@@ -49,6 +60,7 @@ function rowToTask(
 
   const raw = {
     ...row,
+    scope_files,
     acceptance_criteria,
     test_commands,
     dependencies,
@@ -105,9 +117,9 @@ export class TaskRepository {
         .prepare(`
           INSERT INTO tasks (
             id, feature_id, plan_id, title, description, phase, worker_type, repository,
-            acceptance_criteria, test_commands, priority, max_attempts, timeout_minutes,
+            scope_files, acceptance_criteria, test_commands, priority, max_attempts, timeout_minutes,
             status, attempts, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `)
         .run(
           validated.id,
@@ -118,6 +130,7 @@ export class TaskRepository {
           validated.phase ?? null,
           validated.worker_type ?? 'agy',
           validated.repository ?? '.',
+          JSON.stringify(validated.scope_files ?? []),
           JSON.stringify(validated.acceptance_criteria ?? []),
           JSON.stringify(validated.test_commands ?? []),
           validated.priority ?? 0,
@@ -243,6 +256,10 @@ export class TaskRepository {
     if (validated.repository !== undefined) {
       updates.push('repository = ?');
       params.push(validated.repository);
+    }
+    if (validated.scope_files !== undefined) {
+      updates.push('scope_files = ?');
+      params.push(JSON.stringify(validated.scope_files));
     }
     if (validated.acceptance_criteria !== undefined) {
       updates.push('acceptance_criteria = ?');

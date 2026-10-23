@@ -20,6 +20,7 @@ function createTask(
     phase: 'phase-1',
     worker_type: 'agy',
     repository: '.',
+    scope_files: [],
     acceptance_criteria: ['Acceptance criteria'],
     test_commands: ['pnpm test'],
     priority: 0,
