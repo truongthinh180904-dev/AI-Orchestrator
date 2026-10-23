@@ -40,6 +40,8 @@
 - Không đưa token/API key vào code, prompt, log, commit. Dùng `.env` (đã có trong `.gitignore`) + `.env.example`.
 - Không thêm dependency khi chưa cần; thêm thì ghi lý do vào `DECISIONS.md`.
 - Chỉ sửa file trong phạm vi task. Cần sửa ngoài phạm vi → ghi `DECISIONS.md`, giữ thay đổi tối thiểu.
+- DECISIONS.md: mỗi task tối đa 8 dòng gạch đầu dòng, chỉ ghi quyết định/giả định/dependency mới. Không mô tả lại code (đọc code là đủ). Không đọc lại toàn bộ file, chỉ thêm mục mới ở cuối.
+- Không đánh dấu task nghiệp vụ DONE trong scheduler chỉ vì tiến trình AGY thoát mã 0. Chỉ chuyển sang VERIFYING; DONE phải đến từ bước kiểm định (Quality Gate) có bằng chứng.
 
 ## 4. Định nghĩa "DONE"
 Task chỉ DONE khi: lint + typecheck + test pass **thật**, mọi tiêu chí nghiệm thu có bằng chứng, commit đã tạo. **Không được tự tuyên bố hoàn thành khi chưa chạy lệnh kiểm tra.**

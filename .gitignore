@@ -35,3 +35,10 @@ tmp/
 temp/
 logs/
 STOP
+*.db
+*.db-wal
+*.db-shm
+.next/
+dist/
+*.tsbuildinfo
+coverage/
