@@ -7,22 +7,29 @@ import {
   type UpdateTaskInput,
   type TaskStatus,
   type TaskDependencyStatus,
+  type TaskRunHistory,
+  type Checkpoint,
+  type CreateCheckpointInput,
+  type CheckpointFilter,
 } from '@ai-orchestrator/shared';
 import { TaskStateService, type TransitionTaskOptions } from './task-state-service.js';
 import {
   DependencyResolverService,
   type ResolveServiceOptions,
 } from './dependency-resolver-service.js';
+import { TaskHistoryService } from './task-history-service.js';
 
 export class TaskService {
   private readonly taskRepo: TaskRepository;
   private readonly stateService: TaskStateService;
   private readonly resolverService: DependencyResolverService;
+  private readonly historyService: TaskHistoryService;
 
   constructor(db: Database.Database) {
     this.taskRepo = new TaskRepository(db);
     this.stateService = new TaskStateService(db);
     this.resolverService = new DependencyResolverService(db);
+    this.historyService = new TaskHistoryService({ db });
   }
 
   get state(): TaskStateService {
@@ -31,6 +38,10 @@ export class TaskService {
 
   get resolver(): DependencyResolverService {
     return this.resolverService;
+  }
+
+  get history(): TaskHistoryService {
+    return this.historyService;
   }
 
   list(filter?: TaskFilter, search?: string): TaskWithDependencies[] {
@@ -103,5 +114,21 @@ export class TaskService {
 
   resetAttempts(id: string, newAttempts = 0): TaskWithDependencies {
     return this.stateService.resetAttempts(id, newAttempts);
+  }
+
+  getHistory(id: string): TaskRunHistory {
+    return this.historyService.getTaskRunHistory(id);
+  }
+
+  getCheckpoints(id: string, filter?: Omit<CheckpointFilter, 'task_id'>): Checkpoint[] {
+    return this.historyService.getCheckpoints({ ...filter, task_id: id });
+  }
+
+  createCheckpoint(input: CreateCheckpointInput): Checkpoint {
+    return this.historyService.createCheckpoint(input);
+  }
+
+  getLatestCheckpoint(id: string): Checkpoint | null {
+    return this.historyService.getLatestCheckpoint(id);
   }
 }

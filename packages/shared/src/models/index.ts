@@ -9,3 +9,6 @@ export * from './event.js';
 export * from './result.js';
 export * from './workspace.js';
 export * from './agent-lock.js';
+export * from './checkpoint.js';
+export * from './report.js';
+export * from './history.js';

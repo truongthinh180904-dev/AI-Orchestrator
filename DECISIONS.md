@@ -604,3 +604,45 @@
   - `POST /tasks/:id/retry` & `POST /api/tasks/:id/retry`: Kích hoạt retry qua API.
   - Xử lý lỗi tập trung: Map `MAX_ATTEMPTS_EXCEEDED` sang mã HTTP 400 Bad Request kèm thông điệp rõ ràng.
 - **Dependencies**: Không thêm bất kỳ dependency bên ngoài nào mới.
+
+## ORC-005: Checkpoint + Lịch sử lần chạy (attempt, run, kết quả) — Truy lại từng run
+- **Mục tiêu & Nghiệm thu**:
+  - Triển khai cơ chế checkpointing phục vụ lưu vết các bước trung gian của từng task/run.
+  - Xây dựng hệ thống quản lý lịch sử lần chạy đầy đủ theo từng attempt (`attempt, run, kết quả`).
+  - Tiêu chuẩn nghiệm thu ROADMAP: "Truy lại từng run" — Cho phép tra cứu sâu bất kỳ run nào theo ID, trả về đầy đủ metadata, kết quả thực thi (duration, outcome, exit code, lỗi), danh sách checkpoints, reports, và thống kê sự kiện (event stats).
+- **Cơ sở dữ liệu & Migration 003 (`packages/db/migrations/003_checkpoints.sql`)**:
+  - Bổ sung bảng `checkpoints`:
+    - `id TEXT PRIMARY KEY`, `task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE`, `run_id TEXT REFERENCES runs(id) ON DELETE CASCADE`, `attempt INTEGER NOT NULL DEFAULT 1`, `step TEXT NOT NULL`, `status TEXT NOT NULL DEFAULT 'COMPLETED'`, `data TEXT NOT NULL DEFAULT '{}'`, `created_at TEXT NOT NULL`.
+    - Các chỉ mục: `idx_checkpoints_task_id`, `idx_checkpoints_run_id`, `idx_checkpoints_task_attempt`.
+  - Khai thác bảng `reports` đã có từ Migration 001:
+    - Bổ sung `ReportRepository` để lưu trữ và truy vấn báo cáo nghiệm thu/chất lượng gắn với run hoặc task.
+- **Mô hình Schemas & Types (`@ai-orchestrator/shared`)**:
+  - `CheckpointSchema`, `CreateCheckpointInputSchema`, `CheckpointFilterSchema`.
+  - `ReportSchema`, `CreateReportInputSchema`, `ReportFilterSchema`.
+  - `RunOutcomeSchema`, `RunResultSummarySchema`, `TaskAttemptHistoryItemSchema`, `TaskRunHistorySchema`, `RunDetailSchema`.
+- **Repositories (`@ai-orchestrator/db`)**:
+  - `CheckpointRepository`: Hỗ trợ `create`, `getById`, `findByTaskId`, `findByRunId`, `getLatestByTaskId`, `getLatestByRunId`, `countByRunId`, `delete`.
+  - `ReportRepository`: Hỗ trợ `create`, `getById`, `findByRunId`, `findByTaskId`, `countByRunId`, `delete`.
+- **Tầng Dịch vụ (`apps/orchestrator/src/services/`)**:
+  - `TaskHistoryService`:
+    - `computeRunResult(run)`: Tính toán thời lượng `duration_ms`, phân loại `outcome` (`SUCCESS`, `ERROR`, `TIMEOUT`, `CANCELLED`, `IN_PROGRESS`, `UNKNOWN`), trích xuất thông điệp lỗi từ `events` (stderr/result payload), tổng hợp số lượng event, checkpoint, report.
+    - `getTaskRunHistory(taskId)`: Tổng hợp toàn bộ lịch sử các lần chạy (attempts 1..N) tuần tự theo thời gian kèm run, checkpoints, reports và kết quả.
+    - `getRunDetail(runId)`: Truy vấn sâu 1 run duy nhất ("Truy lại từng run"), trả về thông tin task, run, kết quả, checkpoints, reports, toàn bộ events và phân loại `eventStats` theo `type`.
+    - Quản lý checkpoint & report: `createCheckpoint`, `getCheckpoints`, `getLatestCheckpoint`, `createReport`, `getReports`.
+  - `TaskService` & `RunService`: Tích hợp `TaskHistoryService` để cung cấp các phương thức truy vấn thuận tiện.
+  - `TaskScheduler`: Tự động ghi nhận checkpoint `run_started` khi khởi chạy run, và `run_completed`, `run_failed`, `run_cancelled` khi kết thúc từng bước điều phối, bảo đảm lưu vết tự động 100%.
+- **Tầng REST API**:
+  - Task endpoints:
+    - `GET /tasks/:id/history` & `GET /api/tasks/:id/history`: Lịch sử các lần chạy đa attempt.
+    - `GET /tasks/:id/checkpoints` & `GET /api/tasks/:id/checkpoints`: Danh sách checkpoint của task.
+    - `POST /tasks/:id/checkpoints` & `POST /api/tasks/:id/checkpoints`: Tạo checkpoint cho task.
+    - `GET /tasks/:id/checkpoints/latest` & `GET /api/tasks/:id/checkpoints/latest`: Checkpoint mới nhất của task.
+  - Run endpoints:
+    - `GET /runs/:id/detail` & `GET /api/runs/:id/detail`: Truy lại thông tin chi tiết của 1 run ("Truy lại từng run").
+    - `GET /runs/:id/checkpoints` & `GET /api/runs/:id/checkpoints`: Checkpoints của run.
+    - `POST /runs/:id/checkpoints` & `POST /api/runs/:id/checkpoints`: Tạo checkpoint cho run.
+    - `GET /runs/:id/reports` & `GET /api/runs/:id/reports`: Reports của run.
+    - `POST /runs/:id/reports` & `POST /api/runs/:id/reports`: Tạo report cho run.
+- **Sửa Đổi Ngoài Phạm Vi Cần Thiết**:
+  - Cập nhật `packages/db/src/__tests__/migrator.test.ts` phản ánh sự xuất hiện của migration `003_checkpoints.sql` (tổng 3 migrations, bảng `checkpoints`).
+- **Dependencies**: Không thêm bất kỳ dependency bên ngoài nào mới.

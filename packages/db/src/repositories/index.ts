@@ -4,3 +4,5 @@ export * from './task-repository.js';
 export * from './run-repository.js';
 export * from './event-repository.js';
 export * from './agent-lock-repository.js';
+export * from './checkpoint-repository.js';
+export * from './report-repository.js';

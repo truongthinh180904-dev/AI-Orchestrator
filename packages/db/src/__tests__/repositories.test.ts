@@ -5,6 +5,9 @@ import { runMigrations } from '../migrator.js';
 import { FeatureRepository } from '../repositories/feature-repository.js';
 import { TaskRepository } from '../repositories/task-repository.js';
 import { TaskDependencyRepository } from '../repositories/dependency-repository.js';
+import { RunRepository } from '../repositories/run-repository.js';
+import { CheckpointRepository } from '../repositories/checkpoint-repository.js';
+import { ReportRepository } from '../repositories/report-repository.js';
 
 describe('TSK-001: DB Repositories (Task, Feature, TaskDependency)', () => {
   let db: Database.Database;
@@ -420,6 +423,115 @@ describe('TSK-001: DB Repositories (Task, Feature, TaskDependency)', () => {
       );
 
       expect(depRepo.getByTaskId('S1')).toEqual([]);
+    });
+  });
+
+  describe('CheckpointRepository (ORC-005)', () => {
+    let checkpointRepo: CheckpointRepository;
+    let runRepo: RunRepository;
+
+    beforeEach(() => {
+      checkpointRepo = new CheckpointRepository(db);
+      runRepo = new RunRepository(db);
+      taskRepo.create({ id: 'TASK-CP-1', title: 'Checkpoint Task' });
+      runRepo.create({ id: 'RUN-CP-1', task_id: 'TASK-CP-1', attempt: 1, status: 'RUNNING' });
+    });
+
+    it('creates, retrieves, and lists checkpoints with structured data', () => {
+      const cp1 = checkpointRepo.create({
+        task_id: 'TASK-CP-1',
+        run_id: 'RUN-CP-1',
+        attempt: 1,
+        step: 'step_1_init',
+        status: 'COMPLETED',
+        data: { files_modified: ['index.ts'], progress: 25 },
+      });
+
+      expect(cp1.id).toBeDefined();
+      expect(cp1.step).toBe('step_1_init');
+      expect(cp1.status).toBe('COMPLETED');
+      expect(cp1.data).toEqual({ files_modified: ['index.ts'], progress: 25 });
+
+      const fetched = checkpointRepo.getById(cp1.id);
+      expect(fetched).toEqual(cp1);
+
+      const list = checkpointRepo.findByTaskId('TASK-CP-1');
+      expect(list).toHaveLength(1);
+      expect(list[0]?.id).toBe(cp1.id);
+
+      const byRun = checkpointRepo.findByRunId('RUN-CP-1');
+      expect(byRun).toHaveLength(1);
+      expect(byRun[0]?.id).toBe(cp1.id);
+    });
+
+    it('retrieves the latest checkpoint for task and run', () => {
+      checkpointRepo.create({
+        id: 'CP-1',
+        task_id: 'TASK-CP-1',
+        run_id: 'RUN-CP-1',
+        attempt: 1,
+        step: 'init',
+        created_at: '2026-10-23T01:00:00.000Z',
+      });
+      checkpointRepo.create({
+        id: 'CP-2',
+        task_id: 'TASK-CP-1',
+        run_id: 'RUN-CP-1',
+        attempt: 1,
+        step: 'verify',
+        created_at: '2026-10-23T01:05:00.000Z',
+      });
+
+      const latestTask = checkpointRepo.getLatestByTaskId('TASK-CP-1');
+      expect(latestTask?.id).toBe('CP-2');
+
+      const latestRun = checkpointRepo.getLatestByRunId('RUN-CP-1');
+      expect(latestRun?.id).toBe('CP-2');
+    });
+
+    it('cascades deletion when task or run is deleted', () => {
+      checkpointRepo.create({
+        id: 'CP-DEL',
+        task_id: 'TASK-CP-1',
+        run_id: 'RUN-CP-1',
+        step: 'temp',
+      });
+
+      expect(checkpointRepo.getById('CP-DEL')).not.toBeNull();
+      runRepo.delete('RUN-CP-1');
+      expect(checkpointRepo.getById('CP-DEL')).toBeNull();
+    });
+  });
+
+  describe('ReportRepository (ORC-005)', () => {
+    let reportRepo: ReportRepository;
+    let runRepo: RunRepository;
+
+    beforeEach(() => {
+      reportRepo = new ReportRepository(db);
+      runRepo = new RunRepository(db);
+      taskRepo.create({ id: 'TASK-REP-1', title: 'Report Task' });
+      runRepo.create({ id: 'RUN-REP-1', task_id: 'TASK-REP-1', attempt: 1, status: 'SUCCESS' });
+    });
+
+    it('creates, retrieves, and filters reports', () => {
+      const rep = reportRepo.create({
+        run_id: 'RUN-REP-1',
+        kind: 'test_summary',
+        content: '# Test passed 10/10',
+      });
+
+      expect(rep.id).toBeDefined();
+      expect(rep.kind).toBe('test_summary');
+      expect(rep.content).toBe('# Test passed 10/10');
+
+      const byRun = reportRepo.findByRunId('RUN-REP-1');
+      expect(byRun).toHaveLength(1);
+      expect(byRun[0]?.kind).toBe('test_summary');
+
+      const byTask = reportRepo.findByTaskId('TASK-REP-1');
+      expect(byTask).toHaveLength(1);
+      expect(byTask[0]?.id).toBe(rep.id);
     });
   });
 });

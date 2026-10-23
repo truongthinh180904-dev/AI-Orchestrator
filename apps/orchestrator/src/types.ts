@@ -103,6 +103,40 @@ export const RunStreamQuerySchema = z.object({
 });
 export type RunStreamQueryInput = z.infer<typeof RunStreamQuerySchema>;
 
+export const CreateCheckpointBodySchema = z.object({
+  step: z.string().min(1, 'Step name is required'),
+  status: z.enum(['PENDING', 'IN_PROGRESS', 'COMPLETED', 'FAILED', 'SKIPPED']).optional(),
+  data: z.record(z.string(), z.unknown()).optional(),
+  runId: z.string().optional(),
+  run_id: z.string().optional(),
+  attempt: z.number().int().min(1).optional(),
+});
+export type CreateCheckpointBodyInput = z.infer<typeof CreateCheckpointBodySchema>;
+
+export const CheckpointQuerySchema = z.object({
+  runId: z.string().optional(),
+  run_id: z.string().optional(),
+  attempt: z.coerce.number().int().min(1).optional(),
+  step: z.string().optional(),
+  status: z.enum(['PENDING', 'IN_PROGRESS', 'COMPLETED', 'FAILED', 'SKIPPED']).optional(),
+  limit: z.coerce.number().int().positive().optional(),
+  offset: z.coerce.number().int().nonnegative().optional(),
+});
+export type CheckpointQueryInput = z.infer<typeof CheckpointQuerySchema>;
+
+export const CreateReportBodySchema = z.object({
+  kind: z.string().min(1, 'Report kind is required'),
+  content: z.string().optional().default(''),
+});
+export type CreateReportBodyInput = z.infer<typeof CreateReportBodySchema>;
+
+export const ReportQuerySchema = z.object({
+  kind: z.string().optional(),
+  limit: z.coerce.number().int().positive().optional(),
+  offset: z.coerce.number().int().nonnegative().optional(),
+});
+export type ReportQueryInput = z.infer<typeof ReportQuerySchema>;
+
 export {
   CreateRunApiSchema,
   StopRunApiSchema,

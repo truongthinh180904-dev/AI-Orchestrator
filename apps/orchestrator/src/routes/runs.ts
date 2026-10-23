@@ -6,6 +6,9 @@ import {
   RunFilterSchema,
   RunParamsSchema,
   RunStreamQuerySchema,
+  CreateCheckpointBodySchema,
+  CreateReportBodySchema,
+  ReportQuerySchema,
 } from '../types.js';
 import type { EventRecord, EventFilter } from '@ai-orchestrator/shared';
 
@@ -201,4 +204,69 @@ export const runRoutes: FastifyPluginAsync<RunRoutesOptions> = async (fastify, o
 
   fastify.post('/runs/:id/stop', handleStopRun);
   fastify.post('/api/runs/:id/stop', handleStopRun);
+
+  // GET /runs/:id/detail (ORC-005: Deep run inspection — "Truy lại từng run")
+  const handleGetRunDetail = async (request: FastifyRequest) => {
+    const params = RunParamsSchema.parse(request.params);
+    const detail = runService.getRunDetail(params.id);
+    return { data: detail };
+  };
+
+  fastify.get('/runs/:id/detail', handleGetRunDetail);
+  fastify.get('/api/runs/:id/detail', handleGetRunDetail);
+
+  // GET /runs/:id/checkpoints (ORC-005: Run checkpoints)
+  const handleGetRunCheckpoints = async (request: FastifyRequest) => {
+    const params = RunParamsSchema.parse(request.params);
+    const checkpoints = runService.getCheckpoints(params.id);
+    return { data: checkpoints };
+  };
+
+  fastify.get('/runs/:id/checkpoints', handleGetRunCheckpoints);
+  fastify.get('/api/runs/:id/checkpoints', handleGetRunCheckpoints);
+
+  // POST /runs/:id/checkpoints (ORC-005: Add checkpoint to run)
+  const handleCreateRunCheckpoint = async (request: FastifyRequest, reply: FastifyReply) => {
+    const params = RunParamsSchema.parse(request.params);
+    const body = CreateCheckpointBodySchema.parse(request.body ?? {});
+    const run = runService.getRun(params.id);
+    const checkpoint = runService.createCheckpoint({
+      task_id: run.task_id,
+      run_id: params.id,
+      attempt: body.attempt ?? run.attempt,
+      step: body.step,
+      status: body.status,
+      data: body.data,
+    });
+    return reply.status(201).send({ data: checkpoint });
+  };
+
+  fastify.post('/runs/:id/checkpoints', handleCreateRunCheckpoint);
+  fastify.post('/api/runs/:id/checkpoints', handleCreateRunCheckpoint);
+
+  // GET /runs/:id/reports (ORC-005: Run reports)
+  const handleGetRunReports = async (request: FastifyRequest) => {
+    const params = RunParamsSchema.parse(request.params);
+    const query = ReportQuerySchema.parse(request.query ?? {});
+    const reports = runService.getReports(params.id, query);
+    return { data: reports };
+  };
+
+  fastify.get('/runs/:id/reports', handleGetRunReports);
+  fastify.get('/api/runs/:id/reports', handleGetRunReports);
+
+  // POST /runs/:id/reports (ORC-005: Create report for run)
+  const handleCreateRunReport = async (request: FastifyRequest, reply: FastifyReply) => {
+    const params = RunParamsSchema.parse(request.params);
+    const body = CreateReportBodySchema.parse(request.body ?? {});
+    const report = runService.createReport({
+      run_id: params.id,
+      kind: body.kind,
+      content: body.content,
+    });
+    return reply.status(201).send({ data: report });
+  };
+
+  fastify.post('/runs/:id/reports', handleCreateRunReport);
+  fastify.post('/api/runs/:id/reports', handleCreateRunReport);
 };

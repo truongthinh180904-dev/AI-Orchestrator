@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3';
-import { TaskRepository, AgentLockRepository, RunRepository } from '@ai-orchestrator/db';
+import { TaskRepository, AgentLockRepository, RunRepository, CheckpointRepository } from '@ai-orchestrator/db';
 import {
   type TaskWithDependencies,
   type AgentLock,
@@ -44,6 +44,7 @@ export class TaskScheduler {
   private readonly taskRepo: TaskRepository;
   private readonly lockRepo: AgentLockRepository;
   private readonly runRepo: RunRepository;
+  private readonly checkpointRepo: CheckpointRepository;
   private readonly stateService: TaskStateService;
   private readonly runService: RunService;
   private readonly lockId: string;
@@ -63,6 +64,7 @@ export class TaskScheduler {
     this.taskRepo = new TaskRepository(this.db);
     this.lockRepo = new AgentLockRepository(this.db);
     this.runRepo = new RunRepository(this.db);
+    this.checkpointRepo = new CheckpointRepository(this.db);
     this.stateService = new TaskStateService(this.db);
     this.lockId = options.lockId ?? DEFAULT_AGENT_LOCK_ID;
     this.autoVerifyDefault = options.autoVerify ?? true;
@@ -242,6 +244,20 @@ export class TaskScheduler {
       this._activeRunId = run.id;
       this.lockRepo.updateRunId(this.lockId, run.id);
 
+      // Record start checkpoint
+      try {
+        this.checkpointRepo.create({
+          task_id: task.id,
+          run_id: run.id,
+          attempt: run.attempt,
+          step: 'run_started',
+          status: 'IN_PROGRESS',
+          data: { started_at: run.started_at, workerType: task.worker_type },
+        });
+      } catch {
+        // Non-critical checkpoint failure
+      }
+
       // Wait for process completion
       await execution.waitForCompletion();
 
@@ -262,11 +278,35 @@ export class TaskScheduler {
             runId: run.id,
           });
         }
+        try {
+          this.checkpointRepo.create({
+            task_id: task.id,
+            run_id: run.id,
+            attempt: run.attempt,
+            step: 'run_completed',
+            status: 'COMPLETED',
+            data: { exit_code: finishedRun?.exit_code, autoVerify },
+          });
+        } catch {
+          // Non-critical
+        }
       } else if (runStatus === 'CANCELLED') {
         this.stateService.cancel(task.id, {
           reason: 'Execution was cancelled or stopped',
           runId: run.id,
         });
+        try {
+          this.checkpointRepo.create({
+            task_id: task.id,
+            run_id: run.id,
+            attempt: run.attempt,
+            step: 'run_cancelled',
+            status: 'FAILED',
+            data: { reason: 'Execution was cancelled or stopped' },
+          });
+        } catch {
+          // Non-critical
+        }
         const finalTask = this.taskRepo.findById(task.id);
         return {
           executed: true,
@@ -283,6 +323,18 @@ export class TaskScheduler {
           reason: failureReason,
           runId: run.id,
         });
+        try {
+          this.checkpointRepo.create({
+            task_id: task.id,
+            run_id: run.id,
+            attempt: run.attempt,
+            step: 'run_failed',
+            status: 'FAILED',
+            data: { failureReason, runStatus, exit_code: finishedRun?.exit_code },
+          });
+        } catch {
+          // Non-critical
+        }
 
         // ORC-004: Retry policy evaluation & backoff
         const failedTask = this.taskRepo.findById(task.id);

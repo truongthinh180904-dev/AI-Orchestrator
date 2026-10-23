@@ -15,6 +15,12 @@ import {
   type StopRunApiInput,
   type RunFilter,
   type Env,
+  type RunDetail,
+  type Checkpoint,
+  type CreateCheckpointInput,
+  type Report,
+  type CreateReportInput,
+  type ReportFilter,
 } from '@ai-orchestrator/shared';
 import {
   ExecutionManager,
@@ -23,6 +29,7 @@ import {
 } from '../adapters/execution-manager.js';
 import type { RepositoryRegistry } from '../adapters/repository-registry.js';
 import { getOrchestratorConfig } from '../config.js';
+import { TaskHistoryService } from './task-history-service.js';
 
 export interface RunServiceOptions {
   db: Database.Database;
@@ -43,6 +50,7 @@ export class RunService {
   private readonly lockRepo: AgentLockRepository;
   private readonly executionManager: ExecutionManager;
   private readonly repositoryRegistry?: RepositoryRegistry;
+  private readonly historyService: TaskHistoryService;
   private readonly config: Partial<Env>;
 
   constructor(options: RunServiceOptions) {
@@ -51,6 +59,7 @@ export class RunService {
     this.runRepo = new RunRepository(this.db);
     this.eventRepo = new EventRepository(this.db);
     this.lockRepo = new AgentLockRepository(this.db);
+    this.historyService = new TaskHistoryService({ db: this.db });
     this.executionManager = options.executionManager ?? defaultExecutionManager;
     this.repositoryRegistry = options.repositoryRegistry;
 
@@ -276,5 +285,29 @@ export class RunService {
       throw new AppError('RUN_NOT_FOUND', `Run with id '${runId}' not found`, { runId });
     }
     return this.eventRepo.findByRunId(runId, filter);
+  }
+
+  getRunDetail(runId: string): RunDetail {
+    return this.historyService.getRunDetail(runId);
+  }
+
+  getCheckpoints(runId: string): Checkpoint[] {
+    const run = this.runRepo.getById(runId);
+    if (!run) {
+      throw new AppError('RUN_NOT_FOUND', `Run with id '${runId}' not found`, { runId });
+    }
+    return this.historyService.getCheckpoints({ run_id: runId });
+  }
+
+  createCheckpoint(input: CreateCheckpointInput): Checkpoint {
+    return this.historyService.createCheckpoint(input);
+  }
+
+  getReports(runId: string, filter?: ReportFilter): Report[] {
+    return this.historyService.getReports(runId, filter);
+  }
+
+  createReport(input: CreateReportInput): Report {
+    return this.historyService.createReport(input);
   }
 }

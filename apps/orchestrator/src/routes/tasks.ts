@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
+import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import type { TaskService } from '../services/task-service.js';
 import {
   TaskQuerySchema,
@@ -8,6 +8,8 @@ import {
   TaskRetryBodySchema,
   TaskReadyQuerySchema,
   TaskResolveReadyBodySchema,
+  CreateCheckpointBodySchema,
+  CheckpointQuerySchema,
 } from '../types.js';
 import { AppError } from '@ai-orchestrator/shared';
 
@@ -146,4 +148,60 @@ export const taskRoutes: FastifyPluginAsync<TaskRoutesOptions> = async (fastify,
 
   fastify.get('/tasks/:id/allowed-transitions', handleAllowedTransitions);
   fastify.get('/api/tasks/:id/allowed-transitions', handleAllowedTransitions);
+
+  // GET /tasks/:id/history (ORC-005: Task Run & Attempt History)
+  const handleTaskHistory = async (request: FastifyRequest) => {
+    const params = TaskParamsSchema.parse(request.params);
+    const history = taskService.getHistory(params.id);
+    return { data: history };
+  };
+
+  fastify.get('/tasks/:id/history', handleTaskHistory);
+  fastify.get('/api/tasks/:id/history', handleTaskHistory);
+
+  // GET /tasks/:id/checkpoints (ORC-005: Task Checkpoints)
+  const handleTaskCheckpoints = async (request: FastifyRequest) => {
+    const params = TaskParamsSchema.parse(request.params);
+    const query = CheckpointQuerySchema.parse(request.query ?? {});
+    const checkpoints = taskService.getCheckpoints(params.id, {
+      run_id: query.run_id ?? query.runId,
+      attempt: query.attempt,
+      step: query.step,
+      status: query.status,
+      limit: query.limit,
+      offset: query.offset,
+    });
+    return { data: checkpoints };
+  };
+
+  fastify.get('/tasks/:id/checkpoints', handleTaskCheckpoints);
+  fastify.get('/api/tasks/:id/checkpoints', handleTaskCheckpoints);
+
+  // POST /tasks/:id/checkpoints (ORC-005: Create Checkpoint)
+  const handleCreateTaskCheckpoint = async (request: FastifyRequest, reply: FastifyReply) => {
+    const params = TaskParamsSchema.parse(request.params);
+    const body = CreateCheckpointBodySchema.parse(request.body ?? {});
+    const checkpoint = taskService.createCheckpoint({
+      task_id: params.id,
+      run_id: body.run_id ?? body.runId,
+      attempt: body.attempt,
+      step: body.step,
+      status: body.status,
+      data: body.data,
+    });
+    return reply.status(201).send({ data: checkpoint });
+  };
+
+  fastify.post('/tasks/:id/checkpoints', handleCreateTaskCheckpoint);
+  fastify.post('/api/tasks/:id/checkpoints', handleCreateTaskCheckpoint);
+
+  // GET /tasks/:id/checkpoints/latest (ORC-005: Latest Checkpoint)
+  const handleLatestCheckpoint = async (request: FastifyRequest) => {
+    const params = TaskParamsSchema.parse(request.params);
+    const checkpoint = taskService.getLatestCheckpoint(params.id);
+    return { data: checkpoint };
+  };
+
+  fastify.get('/tasks/:id/checkpoints/latest', handleLatestCheckpoint);
+  fastify.get('/api/tasks/:id/checkpoints/latest', handleLatestCheckpoint);
 };
