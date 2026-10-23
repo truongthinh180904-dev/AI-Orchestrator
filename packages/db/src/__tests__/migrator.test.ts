@@ -21,9 +21,10 @@ describe('Migration Runner', () => {
       expect(firstRun).toContain('007_task_scope_files.sql');
       expect(firstRun).toContain('008_review_findings.sql');
       expect(firstRun).toContain('009_security_checks.sql');
+      expect(firstRun).toContain('010_repair_loops.sql');
 
       const appliedAfterFirst = getAppliedMigrations(db);
-      expect(appliedAfterFirst.length).toBe(9);
+      expect(appliedAfterFirst.length).toBe(10);
       expect(appliedAfterFirst[0]?.name).toBe('001_initial_schema.sql');
       expect(appliedAfterFirst[1]?.name).toBe('002_agent_lock.sql');
       expect(appliedAfterFirst[2]?.name).toBe('003_checkpoints.sql');
@@ -33,6 +34,7 @@ describe('Migration Runner', () => {
       expect(appliedAfterFirst[6]?.name).toBe('007_task_scope_files.sql');
       expect(appliedAfterFirst[7]?.name).toBe('008_review_findings.sql');
       expect(appliedAfterFirst[8]?.name).toBe('009_security_checks.sql');
+      expect(appliedAfterFirst[9]?.name).toBe('010_repair_loops.sql');
       expect(appliedAfterFirst[0]?.applied_at).toBeTruthy();
       expect(appliedAfterFirst[1]?.applied_at).toBeTruthy();
       expect(appliedAfterFirst[2]?.applied_at).toBeTruthy();
@@ -42,13 +44,14 @@ describe('Migration Runner', () => {
       expect(appliedAfterFirst[6]?.applied_at).toBeTruthy();
       expect(appliedAfterFirst[7]?.applied_at).toBeTruthy();
       expect(appliedAfterFirst[8]?.applied_at).toBeTruthy();
+      expect(appliedAfterFirst[9]?.applied_at).toBeTruthy();
 
       // Second run: idempotent, returns empty array, no error
       const secondRun = runMigrations(db);
       expect(secondRun).toEqual([]);
 
       const appliedAfterSecond = getAppliedMigrations(db);
-      expect(appliedAfterSecond.length).toBe(9);
+      expect(appliedAfterSecond.length).toBe(10);
     } finally {
       db.close();
     }
@@ -76,6 +79,8 @@ describe('Migration Runner', () => {
       expect(tableNames).toContain('plans');
       expect(tableNames).toContain('security_checks');
       expect(tableNames).toContain('secret_findings');
+      expect(tableNames).toContain('repair_loops');
+      expect(tableNames).toContain('repair_iterations');
     } finally {
       db.close();
     }

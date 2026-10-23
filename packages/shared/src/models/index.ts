@@ -16,3 +16,4 @@ export * from './plan.js';
 export * from './quality-scope.js';
 export * from './quality-review.js';
 export * from './security-check.js';
+export * from './repair-loop.js';

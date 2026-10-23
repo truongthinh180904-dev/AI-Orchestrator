@@ -14,6 +14,7 @@ import { QualityRunner } from './services/quality-runner.js';
 import { ScopeDiffService } from './services/scope-diff-service.js';
 import { ReviewerService } from './services/reviewer-service.js';
 import { SecurityCheckService } from './services/security-check-service.js';
+import { RepairLoopService } from './services/repair-loop-service.js';
 import { createExecutionManager } from './adapters/execution-manager.js';
 import { healthRoutes } from './routes/health.js';
 import { taskRoutes } from './routes/tasks.js';
@@ -49,6 +50,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
         case 'FILE_NOT_FOUND':
         case 'PLAN_NOT_FOUND':
         case 'QUALITY_RECORD_NOT_FOUND':
+        case 'REPAIR_LOOP_NOT_FOUND':
           statusCode = 404;
           break;
         case 'TASK_ALREADY_EXISTS':
@@ -221,6 +223,15 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       qualityCheckRepo: qualityRunner ? undefined : undefined,
     });
 
+  const repairLoopService =
+    options.repairLoopService ??
+    new RepairLoopService({
+      db,
+      qualityRunner,
+      reviewerService,
+      config: options.config,
+    });
+
   // Register routes
   await server.register(healthRoutes);
   await server.register(taskRoutes, { taskService });
@@ -235,6 +246,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     scopeDiffService,
     reviewerService,
     securityCheckService,
+    repairLoopService,
   });
 
   return server;

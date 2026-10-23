@@ -22,6 +22,7 @@ import type { QualityRunner } from './services/quality-runner.js';
 import type { ScopeDiffService } from './services/scope-diff-service.js';
 import type { ReviewerService } from './services/reviewer-service.js';
 import type { SecurityCheckService } from './services/security-check-service.js';
+import type { RepairLoopService } from './services/repair-loop-service.js';
 
 export const ImportRequestSchema = z.object({
   filePath: z.string().optional(),
@@ -243,4 +244,5 @@ export interface BuildServerOptions {
   scopeDiffService?: ScopeDiffService;
   reviewerService?: ReviewerService;
   securityCheckService?: SecurityCheckService;
+  repairLoopService?: RepairLoopService;
 }

@@ -18,6 +18,7 @@ import type { QualityRunner } from '../services/quality-runner.js';
 import type { ScopeDiffService } from '../services/scope-diff-service.js';
 import type { ReviewerService } from '../services/reviewer-service.js';
 import type { SecurityCheckService } from '../services/security-check-service.js';
+import type { RepairLoopService } from '../services/repair-loop-service.js';
 
 export interface QualityRoutesOptions {
   qualityConfigService: QualityConfigService;
@@ -25,6 +26,7 @@ export interface QualityRoutesOptions {
   scopeDiffService?: ScopeDiffService;
   reviewerService?: ReviewerService;
   securityCheckService?: SecurityCheckService;
+  repairLoopService?: RepairLoopService;
 }
 
 const RepoParamsSchema = z.object({
@@ -156,6 +158,27 @@ const SecretScanBodySchema = z.object({
   timeoutMs: z.number().int().positive().optional(),
 });
 
+const RepairLoopBodySchema = z.object({
+  taskId: z.string().min(1, 'taskId is required'),
+  runId: z.string().optional(),
+  repoPath: z.string().optional(),
+  maxIterations: z.number().int().positive().optional(),
+  autoTransitionTask: z.boolean().optional(),
+  customPrompt: z.string().optional(),
+});
+
+const TaskRepairBodySchema = z.object({
+  runId: z.string().optional(),
+  repoPath: z.string().optional(),
+  maxIterations: z.number().int().positive().optional(),
+  autoTransitionTask: z.boolean().optional(),
+  customPrompt: z.string().optional(),
+});
+
+const LoopParamsSchema = z.object({
+  id: z.string().min(1, 'Loop ID is required'),
+});
+
 export const qualityRoutes: FastifyPluginAsync<QualityRoutesOptions> = async (fastify, opts) => {
   const {
     qualityConfigService,
@@ -163,6 +186,7 @@ export const qualityRoutes: FastifyPluginAsync<QualityRoutesOptions> = async (fa
     scopeDiffService,
     reviewerService,
     securityCheckService,
+    repairLoopService,
   } = opts;
 
   // GET /repos/:id/quality-config & /api/repos/:id/quality-config
@@ -584,4 +608,82 @@ export const qualityRoutes: FastifyPluginAsync<QualityRoutesOptions> = async (fa
 
   fastify.post('/quality/secrets/scan', handleRunSecretScan);
   fastify.post('/api/quality/secrets/scan', handleRunSecretScan);
+
+  // POST /quality/repair-loop & /api/quality/repair-loop
+  const handleRunRepairLoop = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    if (!repairLoopService) {
+      throw new AppError('SERVICE_UNAVAILABLE', 'RepairLoopService is not configured');
+    }
+    const body = RepairLoopBodySchema.parse(request.body ?? {});
+    const result = await repairLoopService.runRepairCycle({
+      taskId: body.taskId,
+      runId: body.runId,
+      repoPath: body.repoPath,
+      maxIterations: body.maxIterations,
+      autoTransitionTask: body.autoTransitionTask,
+      customPrompt: body.customPrompt,
+    });
+    return reply.status(200).send({ data: result });
+  };
+
+  fastify.post('/quality/repair-loop', handleRunRepairLoop);
+  fastify.post('/api/quality/repair-loop', handleRunRepairLoop);
+
+  // GET /quality/repair-loops/:id & /api/quality/repair-loops/:id
+  const handleGetRepairLoopById = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<void> => {
+    if (!repairLoopService) {
+      throw new AppError('SERVICE_UNAVAILABLE', 'RepairLoopService is not configured');
+    }
+    const params = LoopParamsSchema.parse(request.params);
+    const loop = repairLoopService.getRepairLoop(params.id);
+    if (!loop) {
+      throw new AppError('REPAIR_LOOP_NOT_FOUND', `Repair loop '${params.id}' not found`, {
+        loopId: params.id,
+      });
+    }
+    return reply.status(200).send({ data: loop });
+  };
+
+  fastify.get('/quality/repair-loops/:id', handleGetRepairLoopById);
+  fastify.get('/api/quality/repair-loops/:id', handleGetRepairLoopById);
+
+  // GET /tasks/:id/repair-loops & /api/tasks/:id/repair-loops
+  const handleGetTaskRepairLoops = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<void> => {
+    if (!repairLoopService) {
+      throw new AppError('SERVICE_UNAVAILABLE', 'RepairLoopService is not configured');
+    }
+    const params = TaskParamsSchema.parse(request.params);
+    const loops = repairLoopService.getLoopsForTask(params.id);
+    return reply.status(200).send({ data: loops });
+  };
+
+  fastify.get('/tasks/:id/repair-loops', handleGetTaskRepairLoops);
+  fastify.get('/api/tasks/:id/repair-loops', handleGetTaskRepairLoops);
+
+  // POST /tasks/:id/repair & /api/tasks/:id/repair
+  const handleTaskRepair = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    if (!repairLoopService) {
+      throw new AppError('SERVICE_UNAVAILABLE', 'RepairLoopService is not configured');
+    }
+    const params = TaskParamsSchema.parse(request.params);
+    const body = TaskRepairBodySchema.parse(request.body ?? {});
+    const result = await repairLoopService.runRepairCycle({
+      taskId: params.id,
+      runId: body.runId,
+      repoPath: body.repoPath,
+      maxIterations: body.maxIterations,
+      autoTransitionTask: body.autoTransitionTask,
+      customPrompt: body.customPrompt,
+    });
+    return reply.status(200).send({ data: result });
+  };
+
+  fastify.post('/tasks/:id/repair', handleTaskRepair);
+  fastify.post('/api/tasks/:id/repair', handleTaskRepair);
 };

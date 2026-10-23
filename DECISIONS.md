@@ -727,3 +727,14 @@
 - **Lưu trữ kết quả thật**: `SecurityCheckService` ghi nhận toàn bộ kết quả audit/secret scan vào SQLite và tự động tạo bản ghi trong bảng `reports` (`kind: 'security_check'`).
 - **REST API Endpoints**: Cung cấp `POST /api/quality/security-check`, `GET /api/quality/security-checks`, `GET /api/quality/security-checks/:id/secrets`, `POST /api/quality/audit`, `POST /api/quality/secrets/scan`, `POST /api/tasks/:id/security-check`.
 - **Dependencies**: Tái sử dụng `better-sqlite3`, `zod`, `Fastify`; không thêm dependency ngoài.
+
+
+## QLT-006: Vòng sửa có giới hạn (max N) — Hết lượt thì dừng, FAILED
+- Tích hợp vòng sửa lặp có giới hạn `max_iterations` (N >= 1, mặc định 3), điều phối song hành QLT-002 (QualityRunner) và QLT-004 (ReviewerService).
+- Khi lỗi tiếp diễn đến lần thứ N, hệ thống dừng ngay lập tức, chuyển trạng thái task sang `FAILED` với lý do `MAX_REPAIR_ITERATIONS_EXCEEDED` ("Hết lượt thì dừng, FAILED").
+- Dừng sớm (early-exit) ngay khi một iteration đạt `isRepairIterationPassed` (tất cả lệnh exit 0 và không có review finding `critical`/`high`), chuyển task sang `VERIFYING`.
+- Tự động bóc tách stdout/stderr lỗi và reviewer findings gộp vào `buildRepairPrompt` để AI worker tập trung sửa đúng trọng tâm.
+- Bổ sung Migration 010 khởi tạo 2 bảng `repair_loops` và `repair_iterations` có khóa ngoại cascade tới `tasks(id)`.
+- Lưu vết báo cáo kiểm toán đầy đủ dưới dạng bản ghi `kind: 'repair_loop'` trong bảng `reports`.
+- REST API cung cấp `/quality/repair-loop`, `/quality/repair-loops/:id`, `/tasks/:id/repair-loops`, `/tasks/:id/repair` (hỗ trợ tiền tố `/api`).
+- Không thêm dependency bên ngoài mới nào; tái sử dụng Zod, better-sqlite3 và Fastify.
