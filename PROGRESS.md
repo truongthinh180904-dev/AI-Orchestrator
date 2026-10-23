@@ -38,7 +38,7 @@ Trạng thái: `TODO` | `IN_PROGRESS` | `DONE` | `FAILED` | `BLOCKED`
 | QLT-003 | DONE | 1 | 6386f7a | Hoàn thành lúc 2026-10-23 10:28 +07:00 |
 | QLT-004 | DONE | 1 | 94328a9 | Hoàn thành lúc 2026-10-23 10:48 +07:00 |
 | QLT-005 | DONE | 1 | 1cd80f7 | Hoàn thành lúc 2026-10-23 11:15 +07:00 |
-| QLT-006 | TODO | 0 | | |
+| QLT-006 | DONE | 1 | af8d3f3 | Hoàn thành lúc 2026-10-23 11:44 +07:00 |
 | QLT-007 | TODO | 0 | | |
 | REL-001 | TODO | 0 | | |
 | REL-002 | TODO | 0 | | |
