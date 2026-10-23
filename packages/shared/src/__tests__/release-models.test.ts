@@ -4,6 +4,8 @@ import {
   FeatureTaskSummarySchema,
   FeatureComponentTasksResultSchema,
   DefineFeatureTasksInputSchema,
+  FeatureReleaseCheckResultSchema,
+  formatFeatureReleaseCheckMarkdownReport,
 } from '../models/release.js';
 
 describe('Feature Release Models & Zod Schemas', () => {
@@ -174,6 +176,142 @@ describe('Feature Release Models & Zod Schemas', () => {
       expect(parsed.required_tasks).toEqual(['T-1', 'T-2']);
       expect(parsed.assign_task_ids).toEqual(['T-3']);
       expect(parsed.unassign_task_ids).toEqual(['T-4']);
+    });
+  });
+
+  describe('FeatureReleaseCheckResultSchema & Helpers', () => {
+    it('Validates a complete release check result (READY)', () => {
+      const manifest = FeatureComponentTasksResultSchema.parse({
+        feature_id: 'FEAT-READY',
+        feature_name: 'Ready Feature',
+        status: 'DONE',
+        required_task_ids: ['T-1'],
+        all_task_ids: ['T-1'],
+        tasks: [
+          {
+            id: 'T-1',
+            feature_id: 'FEAT-READY',
+            title: 'Task 1',
+            status: 'DONE',
+            is_required: true,
+            execution_order: 1,
+          },
+        ],
+        missing_task_ids: [],
+        summary: {
+          total_tasks: 1,
+          required_count: 1,
+          completed_count: 1,
+          pending_count: 0,
+          failed_count: 0,
+          missing_count: 0,
+          is_all_required_done: true,
+          ready_for_release: true,
+        },
+      });
+
+      const checkResult = FeatureReleaseCheckResultSchema.parse({
+        feature_id: 'FEAT-READY',
+        feature_name: 'Ready Feature',
+        can_release: true,
+        status: 'READY',
+        blocking_reasons: [],
+        rule_evaluations: [
+          {
+            rule_id: 'REQUIRED_TASKS_COMPLETED',
+            name: 'Required Tasks Completed',
+            passed: true,
+            status: 'PASSED',
+            message: 'All required tasks are DONE',
+            details: {},
+          },
+        ],
+        task_summary: manifest.summary,
+        manifest,
+        integration_test_results: [
+          {
+            command: 'pnpm test:integration',
+            status: 'SUCCESS',
+            exit_code: 0,
+            stdout: 'PASS',
+            stderr: '',
+            duration_ms: 120,
+          },
+        ],
+        checked_at: new Date().toISOString(),
+      });
+
+      expect(checkResult.can_release).toBe(true);
+      expect(checkResult.status).toBe('READY');
+      expect(checkResult.blocking_reasons).toHaveLength(0);
+
+      const report = formatFeatureReleaseCheckMarkdownReport(checkResult);
+      expect(report).toContain('READY FOR RELEASE');
+      expect(report).toContain('pnpm test:integration');
+    });
+
+    it('Validates a blocked release check result with blocking reasons', () => {
+      const manifest = FeatureComponentTasksResultSchema.parse({
+        feature_id: 'FEAT-BLOCKED',
+        feature_name: 'Blocked Feature',
+        status: 'IN_PROGRESS',
+        required_task_ids: ['T-1', 'T-2'],
+        all_task_ids: ['T-1'],
+        tasks: [
+          {
+            id: 'T-1',
+            feature_id: 'FEAT-BLOCKED',
+            title: 'Task 1',
+            status: 'TODO',
+            is_required: true,
+            execution_order: 1,
+          },
+        ],
+        missing_task_ids: ['T-2'],
+        summary: {
+          total_tasks: 1,
+          required_count: 2,
+          completed_count: 0,
+          pending_count: 1,
+          failed_count: 0,
+          missing_count: 1,
+          is_all_required_done: false,
+          ready_for_release: false,
+        },
+      });
+
+      const checkResult = FeatureReleaseCheckResultSchema.parse({
+        feature_id: 'FEAT-BLOCKED',
+        feature_name: 'Blocked Feature',
+        can_release: false,
+        status: 'BLOCKED',
+        blocking_reasons: [
+          'Missing required task(s): T-2',
+          'Required task T-1 is not DONE (status: TODO)',
+        ],
+        rule_evaluations: [
+          {
+            rule_id: 'NO_MISSING_TASKS',
+            name: 'No Missing Tasks',
+            passed: false,
+            status: 'FAILED',
+            message: 'Missing required task(s): T-2',
+            details: { missing: ['T-2'] },
+          },
+        ],
+        task_summary: manifest.summary,
+        manifest,
+        integration_test_results: [],
+        checked_at: new Date().toISOString(),
+      });
+
+      expect(checkResult.can_release).toBe(false);
+      expect(checkResult.status).toBe('BLOCKED');
+      expect(checkResult.blocking_reasons).toHaveLength(2);
+
+      const report = formatFeatureReleaseCheckMarkdownReport(checkResult);
+      expect(report).toContain('BLOCKED');
+      expect(report).toContain('Missing required task(s): T-2');
     });
   });
 });

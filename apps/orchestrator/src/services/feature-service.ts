@@ -7,16 +7,23 @@ import {
   type UpdateFeatureInput,
   type FeatureComponentTasksResult,
   type DefineFeatureTasksInput,
+  type FeatureReleaseCheckResult,
+  type CheckReleaseReadinessInput,
+  type FeatureIntegrationTestRecord,
 } from '@ai-orchestrator/shared';
-import { FeatureReleaseService } from './feature-release-service.js';
+import { FeatureReleaseService, type FeatureReleaseServiceOptions } from './feature-release-service.js';
+
+export interface FeatureServiceOptions extends FeatureReleaseServiceOptions {
+  releaseService?: FeatureReleaseService;
+}
 
 export class FeatureService {
   private readonly featureRepo: FeatureRepository;
   private readonly releaseService: FeatureReleaseService;
 
-  constructor(db: Database.Database) {
+  constructor(db: Database.Database, options?: FeatureServiceOptions) {
     this.featureRepo = new FeatureRepository(db);
-    this.releaseService = new FeatureReleaseService(db);
+    this.releaseService = options?.releaseService ?? new FeatureReleaseService(db, options);
   }
 
   list(filter?: FeatureFilter): Feature[] {
@@ -49,6 +56,36 @@ export class FeatureService {
    */
   defineFeatureTasks(id: string, input: DefineFeatureTasksInput): FeatureComponentTasksResult {
     return this.releaseService.defineFeatureTasks(id, input);
+  }
+
+  /**
+   * Kiểm tra điều kiện release của feature: đủ task bắt buộc, Quality Gate pass, integration test pass.
+   */
+  async checkReleaseReadiness(
+    id: string,
+    options?: CheckReleaseReadinessInput,
+  ): Promise<FeatureReleaseCheckResult> {
+    return this.releaseService.checkReleaseReadiness(id, options);
+  }
+
+  /**
+   * Khẳng định tính sẵn sàng phát hành của feature (ném lỗi nếu bị chặn).
+   */
+  async assertCanRelease(
+    id: string,
+    options?: CheckReleaseReadinessInput,
+  ): Promise<FeatureReleaseCheckResult> {
+    return this.releaseService.assertCanRelease(id, options);
+  }
+
+  /**
+   * Chạy các lệnh kiểm thử tích hợp (integration tests) cho feature.
+   */
+  async runIntegrationTests(
+    id: string,
+    options?: { repoPath?: string; timeoutMs?: number; saveReport?: boolean },
+  ): Promise<FeatureIntegrationTestRecord[]> {
+    return this.releaseService.runIntegrationTests(id, options);
   }
 }
 

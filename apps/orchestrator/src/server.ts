@@ -55,6 +55,9 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
         case 'QUALITY_GATE_NOT_FOUND':
           statusCode = 404;
           break;
+        case 'FEATURE_RELEASE_BLOCKED':
+          statusCode = 422;
+          break;
         case 'TASK_ALREADY_EXISTS':
         case 'FEATURE_ALREADY_EXISTS':
         case 'DUPLICATE_TASK_ID':

@@ -1,7 +1,33 @@
+import { z } from 'zod';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import type { FeatureService } from '../services/feature-service.js';
 import { FeatureQuerySchema, FeatureParamsSchema } from '../types.js';
-import { DefineFeatureTasksInputSchema } from '@ai-orchestrator/shared';
+import {
+  DefineFeatureTasksInputSchema,
+  CheckReleaseReadinessInputSchema,
+} from '@ai-orchestrator/shared';
+
+const ReleaseCheckQuerySchema = z.object({
+  execute_integration_tests: z
+    .string()
+    .optional()
+    .transform((val) => val === 'true'),
+  save_report: z
+    .string()
+    .optional()
+    .transform((val) => (val === undefined ? true : val === 'true')),
+  repo_path: z.string().optional(),
+});
+
+const ReleaseCheckBodySchema = CheckReleaseReadinessInputSchema.extend({
+  assert: z.boolean().default(false),
+});
+
+const RunIntegrationTestsBodySchema = z.object({
+  repoPath: z.string().optional(),
+  timeoutMs: z.number().int().positive().optional(),
+  saveReport: z.boolean().default(true),
+});
 
 export interface FeatureRoutesOptions {
   featureService: FeatureService;
@@ -54,5 +80,53 @@ export const featureRoutes: FastifyPluginAsync<FeatureRoutesOptions> = async (fa
   fastify.post('/api/features/:id/tasks', handleDefineFeatureTasks);
   fastify.put('/features/:id/tasks', handleDefineFeatureTasks);
   fastify.put('/api/features/:id/tasks', handleDefineFeatureTasks);
+
+  // GET /features/:id/release-check & GET /api/features/:id/release-check
+  const handleGetReleaseCheck = async (request: FastifyRequest) => {
+    const params = FeatureParamsSchema.parse(request.params);
+    const query = ReleaseCheckQuerySchema.parse(request.query ?? {});
+    const result = await featureService.checkReleaseReadiness(params.id, {
+      execute_integration_tests: query.execute_integration_tests,
+      save_report: query.save_report,
+      repo_path: query.repo_path,
+    });
+    return { data: result };
+  };
+
+  fastify.get('/features/:id/release-check', handleGetReleaseCheck);
+  fastify.get('/api/features/:id/release-check', handleGetReleaseCheck);
+
+  // POST /features/:id/release-check & POST /api/features/:id/release-check
+  const handlePostReleaseCheck = async (request: FastifyRequest) => {
+    const params = FeatureParamsSchema.parse(request.params);
+    const body = ReleaseCheckBodySchema.parse(request.body ?? {});
+    if (body.assert) {
+      const result = await featureService.assertCanRelease(params.id, body);
+      return { data: result };
+    }
+    const result = await featureService.checkReleaseReadiness(params.id, body);
+    return { data: result };
+  };
+
+  fastify.post('/features/:id/release-check', handlePostReleaseCheck);
+  fastify.post('/api/features/:id/release-check', handlePostReleaseCheck);
+
+  // POST /features/:id/integration-tests & POST /api/features/:id/integration-tests
+  const handleRunIntegrationTests = async (request: FastifyRequest) => {
+    const params = FeatureParamsSchema.parse(request.params);
+    const body = RunIntegrationTestsBodySchema.parse(request.body ?? {});
+    const records = await featureService.runIntegrationTests(params.id, body);
+    const passed = records.length > 0 && records.every((r) => r.status === 'SUCCESS');
+    return {
+      data: {
+        feature_id: params.id,
+        records,
+        passed,
+      },
+    };
+  };
+
+  fastify.post('/features/:id/integration-tests', handleRunIntegrationTests);
+  fastify.post('/api/features/:id/integration-tests', handleRunIntegrationTests);
 };
 

@@ -759,3 +759,10 @@
 - REST API: mở rộng `/features/:id/tasks` (GET, POST, PUT) và `/features/:id/manifest` (GET) hỗ trợ cả prefix `/api`.
 - Không thêm dependency bên ngoài mới; tái sử dụng zod, better-sqlite3 và Fastify.
 
+
+## Task REL-002: Kiểm tra feature đủ task + integration test (Thiếu task → chặn)
+- Thiết lập 5 quy tắc release độc lập: `NON_EMPTY_FEATURE`, `NO_MISSING_TASKS`, `REQUIRED_TASKS_COMPLETED`, `QUALITY_GATE_COMPLIANCE`, `INTEGRATION_TESTS_PASSED`.
+- Bất kỳ vi phạm nào (thiếu task, task chưa DONE, task chưa đạt Quality Gate, integration test exit != 0, feature rỗng) đều đánh dấu `can_release: false` và `status: 'BLOCKED'`.
+- Phương thức `assertCanRelease` ném `AppError('FEATURE_RELEASE_BLOCKED')` tương ứng mã lỗi HTTP 422 trên REST API khi có cờ `assert: true`.
+- Tách bạch `runIntegrationTests` chạy tuần tự qua `ProcessAdapter.spawn` an toàn (`shell: false`, có timeout).
+- Bổ sung `findByKind` và `findAll` trên `ReportRepository` để lưu trữ và truy vấn báo cáo `feature_release_check` và `feature_integration_test`.

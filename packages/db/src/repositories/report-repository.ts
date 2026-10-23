@@ -109,6 +109,41 @@ export class ReportRepository {
     return rows.map(rowToReport);
   }
 
+  findByKind(kind: string): Report[] {
+    const sql = 'SELECT * FROM reports WHERE kind = ? ORDER BY created_at ASC';
+    const rows = this.db.prepare(sql).all(kind) as Record<string, unknown>[];
+    return rows.map(rowToReport);
+  }
+
+  findAll(filter?: ReportFilter): Report[] {
+    const conditions: string[] = [];
+    const values: unknown[] = [];
+
+    if (filter?.run_id !== undefined) {
+      conditions.push('run_id = ?');
+      values.push(filter.run_id);
+    }
+    if (filter?.kind !== undefined) {
+      conditions.push('kind = ?');
+      values.push(filter.kind);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    let sql = `SELECT * FROM reports ${whereClause} ORDER BY created_at ASC`;
+
+    if (filter?.limit !== undefined) {
+      sql += ' LIMIT ?';
+      values.push(filter.limit);
+      if (filter?.offset !== undefined) {
+        sql += ' OFFSET ?';
+        values.push(filter.offset);
+      }
+    }
+
+    const rows = this.db.prepare(sql).all(...values) as Record<string, unknown>[];
+    return rows.map(rowToReport);
+  }
+
   countByRunId(runId: string): number {
     const row = this.countByRunIdStmt.get(runId) as { count: number } | undefined;
     return row ? Number(row.count) : 0;

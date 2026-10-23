@@ -1,19 +1,38 @@
+import crypto from 'node:crypto';
 import type Database from 'better-sqlite3';
-import { FeatureRepository, TaskRepository } from '@ai-orchestrator/db';
+import {
+  FeatureRepository,
+  TaskRepository,
+  QualityGateRepository,
+  ReportRepository,
+} from '@ai-orchestrator/db';
 import {
   type FeatureComponentTasksResult,
   type FeatureComponentTask,
   type FeatureTaskSummary,
   type DefineFeatureTasksInput,
+  type FeatureReleaseCheckResult,
+  type FeatureReleaseCheckRule,
+  type FeatureIntegrationTestRecord,
+  type CheckReleaseReadinessInput,
   FeatureComponentTasksResultSchema,
   DefineFeatureTasksInputSchema,
+  FeatureReleasePolicyOptionsSchema,
+  FeatureReleaseCheckResultSchema,
+  CheckReleaseReadinessInputSchema,
+  formatFeatureReleaseCheckMarkdownReport,
+  parseCommandLine,
   AppError,
   logger as defaultLogger,
   type Logger,
 } from '@ai-orchestrator/shared';
+import { ProcessAdapter } from '../adapters/process-adapter.js';
 
 export interface FeatureReleaseServiceOptions {
   logger?: Logger;
+  qualityGateRepo?: QualityGateRepository;
+  reportRepo?: ReportRepository;
+  processAdapter?: ProcessAdapter;
 }
 
 /**
@@ -23,6 +42,9 @@ export interface FeatureReleaseServiceOptions {
 export class FeatureReleaseService {
   private readonly featureRepo: FeatureRepository;
   private readonly taskRepo: TaskRepository;
+  private readonly qualityGateRepo: QualityGateRepository;
+  private readonly reportRepo: ReportRepository;
+  private readonly processAdapter: ProcessAdapter;
   private readonly logger: Logger;
 
   constructor(
@@ -31,6 +53,9 @@ export class FeatureReleaseService {
   ) {
     this.featureRepo = new FeatureRepository(db);
     this.taskRepo = new TaskRepository(db);
+    this.qualityGateRepo = options?.qualityGateRepo ?? new QualityGateRepository(db);
+    this.reportRepo = options?.reportRepo ?? new ReportRepository(db);
+    this.processAdapter = options?.processAdapter ?? new ProcessAdapter();
     this.logger = options?.logger ?? defaultLogger;
   }
 
@@ -189,5 +214,417 @@ export class FeatureReleaseService {
     tx();
 
     return this.getComponentTasks(featureId);
+  }
+
+  /**
+   * Chạy các lệnh kiểm thử tích hợp (integration tests) được khai báo trên feature.
+   */
+  async runIntegrationTests(
+    featureId: string,
+    options?: { repoPath?: string; timeoutMs?: number; saveReport?: boolean },
+  ): Promise<FeatureIntegrationTestRecord[]> {
+    const manifest = this.getComponentTasks(featureId);
+    const testCommands = manifest.integration_tests;
+    const records: FeatureIntegrationTestRecord[] = [];
+    const cwd = options?.repoPath ?? '.';
+    const defaultTimeoutMs = options?.timeoutMs ?? 120_000;
+
+    for (const cmdStr of testCommands) {
+      const startTime = Date.now();
+      let stdout = '';
+      let stderr = '';
+      let exitCode: number | null = null;
+      let status: 'SUCCESS' | 'FAILURE' | 'TIMEOUT' | 'ERROR';
+      let timedOut = false;
+      let timeoutTimer: NodeJS.Timeout | null = null;
+
+      try {
+        const parsed = parseCommandLine(cmdStr);
+        const handle = this.processAdapter.spawn({
+          exe: parsed.exe,
+          args: parsed.args,
+          cwd,
+        });
+
+        handle.on('stdout', (chunk: Buffer) => {
+          stdout += chunk.toString('utf8');
+        });
+
+        handle.on('stderr', (chunk: Buffer) => {
+          stderr += chunk.toString('utf8');
+        });
+
+        if (defaultTimeoutMs > 0) {
+          timeoutTimer = setTimeout(async () => {
+            timedOut = true;
+            try {
+              await handle.terminate({ gracePeriodMs: 1500 });
+            } catch {
+              handle.kill('SIGKILL');
+            }
+          }, defaultTimeoutMs);
+        }
+
+        const exitResult = await handle.waitForExit();
+        exitCode = exitResult.exitCode;
+
+        if (timedOut) {
+          status = 'TIMEOUT';
+        } else if (exitCode === 0) {
+          status = 'SUCCESS';
+        } else {
+          status = 'FAILURE';
+        }
+      } catch (err) {
+        if (timedOut) {
+          status = 'TIMEOUT';
+        } else {
+          status = 'ERROR';
+          const errMsg = err instanceof Error ? err.message : String(err);
+          stderr += (stderr ? '\n' : '') + `Execution error: ${errMsg}`;
+        }
+      } finally {
+        if (timeoutTimer) {
+          clearTimeout(timeoutTimer);
+        }
+      }
+
+      const durationMs = Math.max(0, Date.now() - startTime);
+      records.push({
+        command: cmdStr,
+        status,
+        exit_code: exitCode,
+        stdout,
+        stderr,
+        duration_ms: durationMs,
+      });
+    }
+
+    if (options?.saveReport !== false && this.reportRepo && records.length > 0) {
+      try {
+        const now = new Date().toISOString();
+        this.reportRepo.create({
+          id: crypto.randomUUID(),
+          run_id: null,
+          kind: 'feature_integration_test',
+          content: JSON.stringify(
+            {
+              feature_id: featureId,
+              records,
+              passed: records.every((r) => r.status === 'SUCCESS'),
+              executed_at: now,
+            },
+            null,
+            2,
+          ),
+          created_at: now,
+        });
+      } catch (err) {
+        this.logger.warn(`Failed to save integration test report: ${(err as Error).message}`, {
+          featureId,
+        });
+      }
+    }
+
+    return records;
+  }
+
+  /**
+   * Kiểm tra điều kiện release của feature: đủ task bắt buộc, Quality Gate pass, integration test pass.
+   * Nghiệm thu REL-002: Thiếu task hoặc kiểm thử thất bại -> CHẶN.
+   */
+  async checkReleaseReadiness(
+    featureId: string,
+    options?: CheckReleaseReadinessInput,
+  ): Promise<FeatureReleaseCheckResult> {
+    const input = CheckReleaseReadinessInputSchema.parse(options ?? {});
+    const policy = FeatureReleasePolicyOptionsSchema.parse(input.policy ?? {});
+    const manifest = this.getComponentTasks(featureId);
+
+    const blockingReasons: string[] = [];
+    const ruleEvaluations: FeatureReleaseCheckRule[] = [];
+
+    // Rule 1: Non-Empty Feature
+    const totalComponentTasks = manifest.all_task_ids.length + manifest.missing_task_ids.length;
+    if (policy.require_non_empty && totalComponentTasks === 0) {
+      const msg = `Feature '${featureId}' has no component tasks`;
+      blockingReasons.push(msg);
+      ruleEvaluations.push({
+        rule_id: 'NON_EMPTY_FEATURE',
+        name: 'Non-Empty Feature',
+        passed: false,
+        status: 'FAILED',
+        message: msg,
+        details: {},
+      });
+    } else {
+      ruleEvaluations.push({
+        rule_id: 'NON_EMPTY_FEATURE',
+        name: 'Non-Empty Feature',
+        passed: true,
+        status: 'PASSED',
+        message: `Feature contains ${manifest.all_task_ids.length} component task(s)`,
+        details: { total_tasks: manifest.all_task_ids.length },
+      });
+    }
+
+    // Rule 2: No Missing Tasks (Thiếu task -> Chặn)
+    if (policy.require_no_missing_tasks && manifest.missing_task_ids.length > 0) {
+      for (const missingId of manifest.missing_task_ids) {
+        blockingReasons.push(`Missing required task '${missingId}' not found in database`);
+      }
+      ruleEvaluations.push({
+        rule_id: 'NO_MISSING_TASKS',
+        name: 'No Missing Tasks',
+        passed: false,
+        status: 'FAILED',
+        message: `Feature has ${manifest.missing_task_ids.length} missing required task(s): ${manifest.missing_task_ids.join(', ')}`,
+        details: { missing_task_ids: manifest.missing_task_ids },
+      });
+    } else {
+      ruleEvaluations.push({
+        rule_id: 'NO_MISSING_TASKS',
+        name: 'No Missing Tasks',
+        passed: true,
+        status: 'PASSED',
+        message: 'All required tasks exist in database',
+        details: {},
+      });
+    }
+
+    // Rule 3: Required Tasks Completed (Chưa xong task bắt buộc -> Chặn)
+    const requiredTasks = manifest.tasks.filter((t) => t.is_required);
+    if (policy.require_all_required_done) {
+      const incompleteTasks = requiredTasks.filter((t) => t.status !== 'DONE');
+      if (incompleteTasks.length > 0) {
+        for (const t of incompleteTasks) {
+          blockingReasons.push(`Required task '${t.id}' is not completed (current status: '${t.status}')`);
+        }
+        ruleEvaluations.push({
+          rule_id: 'REQUIRED_TASKS_COMPLETED',
+          name: 'Required Tasks Completed',
+          passed: false,
+          status: 'FAILED',
+          message: `${incompleteTasks.length} required task(s) are not in DONE status`,
+          details: { incomplete_tasks: incompleteTasks.map((t) => ({ id: t.id, status: t.status })) },
+        });
+      } else {
+        ruleEvaluations.push({
+          rule_id: 'REQUIRED_TASKS_COMPLETED',
+          name: 'Required Tasks Completed',
+          passed: true,
+          status: 'PASSED',
+          message: `All ${requiredTasks.length} required task(s) are completed (DONE)`,
+          details: { completed_count: requiredTasks.length },
+        });
+      }
+    } else {
+      ruleEvaluations.push({
+        rule_id: 'REQUIRED_TASKS_COMPLETED',
+        name: 'Required Tasks Completed',
+        passed: true,
+        status: 'SKIPPED',
+        message: 'Required tasks completion check is skipped by policy',
+        details: {},
+      });
+    }
+
+    // Rule 4: Quality Gate Compliance (QLT-007)
+    if (policy.require_quality_gate_passed) {
+      let qgPassed = true;
+      const failedQualityGates: Array<{ task_id: string; reason: string }> = [];
+
+      for (const t of requiredTasks) {
+        const latestGate = this.qualityGateRepo.findLatestByTaskId(t.id);
+        if (!latestGate) {
+          const reason = `Task '${t.id}' does not have a Quality Gate verification record`;
+          blockingReasons.push(reason);
+          failedQualityGates.push({ task_id: t.id, reason });
+          qgPassed = false;
+        } else if (!latestGate.passed || latestGate.status !== 'PASSED') {
+          const reason = `Task '${t.id}' failed Quality Gate evaluation (${latestGate.status}: ${latestGate.summary})`;
+          blockingReasons.push(reason);
+          failedQualityGates.push({ task_id: t.id, reason });
+          qgPassed = false;
+        }
+      }
+
+      if (!qgPassed) {
+        ruleEvaluations.push({
+          rule_id: 'QUALITY_GATE_COMPLIANCE',
+          name: 'Quality Gate Compliance',
+          passed: false,
+          status: 'FAILED',
+          message: `${failedQualityGates.length} required task(s) failed or lack Quality Gate verification`,
+          details: { failed_quality_gates: failedQualityGates },
+        });
+      } else {
+        ruleEvaluations.push({
+          rule_id: 'QUALITY_GATE_COMPLIANCE',
+          name: 'Quality Gate Compliance',
+          passed: true,
+          status: 'PASSED',
+          message: `All ${requiredTasks.length} required task(s) passed Quality Gate verification`,
+          details: {},
+        });
+      }
+    } else {
+      ruleEvaluations.push({
+        rule_id: 'QUALITY_GATE_COMPLIANCE',
+        name: 'Quality Gate Compliance',
+        passed: true,
+        status: 'SKIPPED',
+        message: 'Quality Gate compliance check is disabled by policy',
+        details: {},
+      });
+    }
+
+    // Rule 5: Integration Tests Passed
+    let integrationRecords: FeatureIntegrationTestRecord[] = [];
+    if (manifest.integration_tests.length === 0) {
+      if (policy.require_integration_tests) {
+        const msg = `Feature '${featureId}' requires integration tests, but none are defined`;
+        blockingReasons.push(msg);
+        ruleEvaluations.push({
+          rule_id: 'INTEGRATION_TESTS_PASSED',
+          name: 'Integration Tests Passed',
+          passed: false,
+          status: 'FAILED',
+          message: msg,
+          details: {},
+        });
+      } else {
+        ruleEvaluations.push({
+          rule_id: 'INTEGRATION_TESTS_PASSED',
+          name: 'Integration Tests Passed',
+          passed: true,
+          status: 'SKIPPED',
+          message: 'No integration tests configured for this feature',
+          details: {},
+        });
+      }
+    } else {
+      // Feature has integration tests
+      if (input.execute_integration_tests) {
+        integrationRecords = await this.runIntegrationTests(featureId, {
+          repoPath: input.repo_path,
+        });
+
+        const failedTests = integrationRecords.filter((r) => r.status !== 'SUCCESS');
+        if (failedTests.length > 0) {
+          for (const f of failedTests) {
+            blockingReasons.push(
+              `Integration test failed: '${f.command}' (status: ${f.status}, exit code: ${f.exit_code ?? 'null'})`,
+            );
+          }
+          ruleEvaluations.push({
+            rule_id: 'INTEGRATION_TESTS_PASSED',
+            name: 'Integration Tests Passed',
+            passed: false,
+            status: 'FAILED',
+            message: `${failedTests.length} of ${integrationRecords.length} integration test(s) failed`,
+            details: { failed_tests: failedTests },
+          });
+        } else {
+          ruleEvaluations.push({
+            rule_id: 'INTEGRATION_TESTS_PASSED',
+            name: 'Integration Tests Passed',
+            passed: true,
+            status: 'PASSED',
+            message: `All ${integrationRecords.length} integration test(s) passed successfully`,
+            details: { total_tests: integrationRecords.length },
+          });
+        }
+      } else {
+        // Not executed
+        if (policy.require_integration_tests) {
+          const msg = `Integration tests are configured (${manifest.integration_tests.length}) but execution was not performed`;
+          blockingReasons.push(msg);
+          ruleEvaluations.push({
+            rule_id: 'INTEGRATION_TESTS_PASSED',
+            name: 'Integration Tests Passed',
+            passed: false,
+            status: 'FAILED',
+            message: msg,
+            details: { configured_tests: manifest.integration_tests },
+          });
+        } else {
+          ruleEvaluations.push({
+            rule_id: 'INTEGRATION_TESTS_PASSED',
+            name: 'Integration Tests Passed',
+            passed: true,
+            status: 'WARNING',
+            message: `${manifest.integration_tests.length} integration test(s) configured; run with execute_integration_tests=true to verify`,
+            details: { configured_tests: manifest.integration_tests },
+          });
+        }
+      }
+    }
+
+    const canRelease = blockingReasons.length === 0;
+    const status: 'READY' | 'BLOCKED' = canRelease ? 'READY' : 'BLOCKED';
+    const checkedAt = new Date().toISOString();
+
+    const result: FeatureReleaseCheckResult = {
+      feature_id: manifest.feature_id,
+      feature_name: manifest.feature_name,
+      can_release: canRelease,
+      status,
+      blocking_reasons: blockingReasons,
+      rule_evaluations: ruleEvaluations,
+      task_summary: manifest.summary,
+      manifest,
+      integration_test_results: integrationRecords,
+      checked_at: checkedAt,
+    };
+
+    if (input.save_report !== false && this.reportRepo) {
+      try {
+        const reportContent = formatFeatureReleaseCheckMarkdownReport(result);
+        this.reportRepo.create({
+          id: crypto.randomUUID(),
+          run_id: null,
+          kind: 'feature_release_check',
+          content: reportContent,
+          created_at: checkedAt,
+        });
+      } catch (err) {
+        this.logger.warn(`Failed to save feature release check report: ${(err as Error).message}`, {
+          featureId,
+        });
+      }
+    }
+
+    this.logger.info(`Release check completed for feature '${featureId}': ${status}`, {
+      featureId,
+      canRelease,
+      status,
+      blockingCount: blockingReasons.length,
+    });
+
+    return FeatureReleaseCheckResultSchema.parse(result);
+  }
+
+  /**
+   * Khẳng định tính sẵn sàng phát hành của feature.
+   * Nếu điều kiện release không đạt -> ném AppError('FEATURE_RELEASE_BLOCKED') kèm lý do cụ thể.
+   */
+  async assertCanRelease(
+    featureId: string,
+    options?: CheckReleaseReadinessInput,
+  ): Promise<FeatureReleaseCheckResult> {
+    const result = await this.checkReleaseReadiness(featureId, options);
+    if (!result.can_release) {
+      throw new AppError(
+        'FEATURE_RELEASE_BLOCKED',
+        `Feature '${featureId}' cannot be released: ${result.blocking_reasons.join('; ')}`,
+        {
+          featureId,
+          blocking_reasons: result.blocking_reasons,
+          checkResult: result,
+        },
+      );
+    }
+    return result;
   }
 }
