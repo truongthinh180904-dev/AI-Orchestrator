@@ -708,7 +708,6 @@
 - **REST API Endpoints**: Cung cấp `POST /api/quality/scope-diff`, `GET /api/tasks/:id/scope-diff`, `GET /api/tasks/:id/diff` phục vụ backend và Diff Viewer UI (UI-005).
 - **Dependencies**: Tái sử dụng các module nội bộ (`better-sqlite3`, `zod`, `Fastify`), không cài thêm thư viện ngoài.
 
-
 ## QLT-004: Reviewer agent — findings `{severity, file, line, message}` (zod) — Output hợp lệ schema
 - **Zod Findings Schema**: Chuẩn hóa cấu trúc `{ severity, file, line, message }` với 5 mức severity (`critical`, `high`, `medium`, `low`, `info`); `ReviewFindingInputSchema` tiền xử lý linh hoạt đầu ra từ LLM.
 - **Quy tắc nghiệm thu "Output hợp lệ schema"**: Bóc tách JSON an toàn từ markdown block (` ```json `), mảng thuần hoặc object; từ chối và báo lỗi có cấu trúc khi dữ liệu vi phạm schema.
@@ -718,3 +717,13 @@
 - **Thực thi tiến trình an toàn**: `ReviewerService` spawn tiến trình AGY/Reviewer qua `ProcessAdapter` không dùng shell động; xử lý timeout watchdog và thu thập stdout/stderr.
 - **Tích hợp Git Diff & Task**: `ReviewerService.reviewTask` tự động gắn kết diff thực tế từ git với thông tin task (tiêu chí nghiệm thu, scope files) làm ngữ cảnh cho AI Reviewer.
 - **Dependencies**: Tái sử dụng các module nội bộ (`better-sqlite3`, `zod`, `Fastify`), không cài thêm thư viện ngoài.
+
+## QLT-005: Security check: `pnpm audit` + quét secret (gitleaks nếu có) — Kết quả thật được lưu
+- **Dependency Audit Parser**: Bóc tách JSON từ `pnpm audit --json`, trích xuất advisories, nhóm theo 5 mức severity (`critical`, `high`, `moderate`, `low`, `info`).
+- **Chính sách Quality Gate Audit**: Áp dụng rule `SKILL-testing.md` ("audit không có lỗ hổng high+"); pass khi số lượng lỗ hổng `high` và `critical` bằng 0.
+- **Tích hợp Gitleaks & Fallback Scanner**: Tự động nhận diện CLI `gitleaks` (nếu có trên máy); tích hợp built-in regex scanner phát hiện AWS key, Private key, GitHub PAT, Slack token, AI key, password gán cứng.
+- **Bảo mật tuyệt đối (Rule 3 AGENTS.md)**: Không bao giờ lưu hay log plaintext secret; mọi match đều được mặt nạ hóa (`maskSecret`) và hash SHA-256 (`hashSecret`).
+- **Migration 009 & SQLite Tables**: Khởi tạo bảng `security_checks` và `secret_findings` với foreign keys cascade tới `tasks` và `runs` cùng các index tối ưu hóa.
+- **Lưu trữ kết quả thật**: `SecurityCheckService` ghi nhận toàn bộ kết quả audit/secret scan vào SQLite và tự động tạo bản ghi trong bảng `reports` (`kind: 'security_check'`).
+- **REST API Endpoints**: Cung cấp `POST /api/quality/security-check`, `GET /api/quality/security-checks`, `GET /api/quality/security-checks/:id/secrets`, `POST /api/quality/audit`, `POST /api/quality/secrets/scan`, `POST /api/tasks/:id/security-check`.
+- **Dependencies**: Tái sử dụng `better-sqlite3`, `zod`, `Fastify`; không thêm dependency ngoài.

@@ -15,3 +15,4 @@ export * from './history.js';
 export * from './plan.js';
 export * from './quality-scope.js';
 export * from './quality-review.js';
+export * from './security-check.js';

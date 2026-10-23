@@ -17,12 +17,14 @@ import type { QualityConfigService } from '../services/quality-config-service.js
 import type { QualityRunner } from '../services/quality-runner.js';
 import type { ScopeDiffService } from '../services/scope-diff-service.js';
 import type { ReviewerService } from '../services/reviewer-service.js';
+import type { SecurityCheckService } from '../services/security-check-service.js';
 
 export interface QualityRoutesOptions {
   qualityConfigService: QualityConfigService;
   qualityRunner: QualityRunner;
   scopeDiffService?: ScopeDiffService;
   reviewerService?: ReviewerService;
+  securityCheckService?: SecurityCheckService;
 }
 
 const RepoParamsSchema = z.object({
@@ -112,8 +114,56 @@ const FindingQuerySchema = z.object({
   offset: z.coerce.number().int().nonnegative().optional(),
 });
 
+const SecurityCheckBodySchema = z.object({
+  repoPath: z.string().optional(),
+  taskId: z.string().optional(),
+  runId: z.string().optional(),
+  scanner: z.enum(['auto', 'gitleaks', 'builtin', 'both']).optional(),
+  auditLevel: z.enum(['info', 'low', 'moderate', 'high', 'critical']).optional(),
+  diffContent: z.string().optional(),
+  timeoutMs: z.number().int().positive().optional(),
+});
+
+const SecurityCheckQuerySchema = z.object({
+  taskId: z.string().optional(),
+  runId: z.string().optional(),
+  passed: z
+    .union([z.boolean(), z.string()])
+    .optional()
+    .transform((val) => {
+      if (val === undefined) return undefined;
+      if (typeof val === 'boolean') return val;
+      return val === 'true' || val === '1';
+    }),
+  limit: z.coerce.number().int().positive().optional(),
+  offset: z.coerce.number().int().nonnegative().optional(),
+});
+
+const AuditBodySchema = z.object({
+  repoPath: z.string().optional(),
+  taskId: z.string().optional(),
+  runId: z.string().optional(),
+  auditLevel: z.enum(['info', 'low', 'moderate', 'high', 'critical']).optional(),
+  timeoutMs: z.number().int().positive().optional(),
+});
+
+const SecretScanBodySchema = z.object({
+  repoPath: z.string().optional(),
+  taskId: z.string().optional(),
+  runId: z.string().optional(),
+  scanner: z.enum(['auto', 'gitleaks', 'builtin', 'both']).optional(),
+  diffContent: z.string().optional(),
+  timeoutMs: z.number().int().positive().optional(),
+});
+
 export const qualityRoutes: FastifyPluginAsync<QualityRoutesOptions> = async (fastify, opts) => {
-  const { qualityConfigService, qualityRunner, scopeDiffService, reviewerService } = opts;
+  const {
+    qualityConfigService,
+    qualityRunner,
+    scopeDiffService,
+    reviewerService,
+    securityCheckService,
+  } = opts;
 
   // GET /repos/:id/quality-config & /api/repos/:id/quality-config
   const handleGetRepoQualityConfig = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
@@ -378,4 +428,160 @@ export const qualityRoutes: FastifyPluginAsync<QualityRoutesOptions> = async (fa
 
   fastify.get('/runs/:id/review-findings', handleGetRunFindings);
   fastify.get('/api/runs/:id/review-findings', handleGetRunFindings);
+
+  // POST /quality/security-check & /api/quality/security-check
+  const handleRunSecurityCheck = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<void> => {
+    if (!securityCheckService) {
+      throw new AppError('SERVICE_UNAVAILABLE', 'SecurityCheckService is not configured');
+    }
+    const body = SecurityCheckBodySchema.parse(request.body ?? {});
+    const result = await securityCheckService.runSecurityCheck({
+      repoPath: body.repoPath,
+      taskId: body.taskId,
+      runId: body.runId,
+      scanner: body.scanner,
+      auditLevel: body.auditLevel,
+      diffContent: body.diffContent,
+      timeoutMs: body.timeoutMs,
+    });
+    return reply.status(200).send({ data: result });
+  };
+
+  fastify.post('/quality/security-check', handleRunSecurityCheck);
+  fastify.post('/api/quality/security-check', handleRunSecurityCheck);
+
+  // GET /quality/security-checks & /api/quality/security-checks
+  const handleGetSecurityChecks = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<void> => {
+    if (!securityCheckService) {
+      throw new AppError('SERVICE_UNAVAILABLE', 'SecurityCheckService is not configured');
+    }
+    const query = SecurityCheckQuerySchema.parse(request.query ?? {});
+    const records = securityCheckService.getSecurityChecks({
+      task_id: query.taskId,
+      run_id: query.runId,
+      passed: query.passed,
+      limit: query.limit,
+      offset: query.offset,
+    });
+    return reply.send({ data: records });
+  };
+
+  fastify.get('/quality/security-checks', handleGetSecurityChecks);
+  fastify.get('/api/quality/security-checks', handleGetSecurityChecks);
+
+  // GET /quality/security-checks/:id & /api/quality/security-checks/:id
+  const handleGetSecurityCheckById = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<void> => {
+    if (!securityCheckService) {
+      throw new AppError('SERVICE_UNAVAILABLE', 'SecurityCheckService is not configured');
+    }
+    const params = RecordParamsSchema.parse(request.params);
+    const record = securityCheckService.getSecurityCheckById(params.id);
+    if (!record) {
+      throw new AppError('RECORD_NOT_FOUND', `Security check record with id ${params.id} not found`);
+    }
+    return reply.send({ data: record });
+  };
+
+  fastify.get('/quality/security-checks/:id', handleGetSecurityCheckById);
+  fastify.get('/api/quality/security-checks/:id', handleGetSecurityCheckById);
+
+  // GET /quality/security-checks/:id/secrets & /api/quality/security-checks/:id/secrets
+  const handleGetSecurityCheckSecrets = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<void> => {
+    if (!securityCheckService) {
+      throw new AppError('SERVICE_UNAVAILABLE', 'SecurityCheckService is not configured');
+    }
+    const params = RecordParamsSchema.parse(request.params);
+    const findings = securityCheckService.getSecretFindings(params.id);
+    return reply.send({ data: findings });
+  };
+
+  fastify.get('/quality/security-checks/:id/secrets', handleGetSecurityCheckSecrets);
+  fastify.get('/api/quality/security-checks/:id/secrets', handleGetSecurityCheckSecrets);
+
+  // GET /tasks/:id/security-checks & /api/tasks/:id/security-checks
+  const handleGetTaskSecurityChecks = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<void> => {
+    if (!securityCheckService) {
+      throw new AppError('SERVICE_UNAVAILABLE', 'SecurityCheckService is not configured');
+    }
+    const params = TaskParamsSchema.parse(request.params);
+    const records = securityCheckService.getSecurityChecks({ task_id: params.id });
+    return reply.send({ data: records });
+  };
+
+  fastify.get('/tasks/:id/security-checks', handleGetTaskSecurityChecks);
+  fastify.get('/api/tasks/:id/security-checks', handleGetTaskSecurityChecks);
+
+  // POST /tasks/:id/security-check & /api/tasks/:id/security-check
+  const handleCheckTaskSecurity = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<void> => {
+    if (!securityCheckService) {
+      throw new AppError('SERVICE_UNAVAILABLE', 'SecurityCheckService is not configured');
+    }
+    const params = TaskParamsSchema.parse(request.params);
+    const body = SecurityCheckBodySchema.parse(request.body ?? {});
+    const result = await securityCheckService.checkTask(params.id, body);
+    return reply.status(200).send({ data: result });
+  };
+
+  fastify.post('/tasks/:id/security-check', handleCheckTaskSecurity);
+  fastify.post('/api/tasks/:id/security-check', handleCheckTaskSecurity);
+
+  // POST /quality/audit & /api/quality/audit
+  const handleRunAudit = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    if (!securityCheckService) {
+      throw new AppError('SERVICE_UNAVAILABLE', 'SecurityCheckService is not configured');
+    }
+    const body = AuditBodySchema.parse(request.body ?? {});
+    const result = await securityCheckService.runAudit({
+      repoPath: body.repoPath,
+      taskId: body.taskId,
+      runId: body.runId,
+      auditLevel: body.auditLevel,
+      timeoutMs: body.timeoutMs,
+    });
+    return reply.status(200).send({ data: result });
+  };
+
+  fastify.post('/quality/audit', handleRunAudit);
+  fastify.post('/api/quality/audit', handleRunAudit);
+
+  // POST /quality/secrets/scan & /api/quality/secrets/scan
+  const handleRunSecretScan = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<void> => {
+    if (!securityCheckService) {
+      throw new AppError('SERVICE_UNAVAILABLE', 'SecurityCheckService is not configured');
+    }
+    const body = SecretScanBodySchema.parse(request.body ?? {});
+    const result = await securityCheckService.runSecretScan({
+      repoPath: body.repoPath,
+      taskId: body.taskId,
+      runId: body.runId,
+      scanner: body.scanner,
+      diffContent: body.diffContent,
+      timeoutMs: body.timeoutMs,
+    });
+    return reply.status(200).send({ data: result });
+  };
+
+  fastify.post('/quality/secrets/scan', handleRunSecretScan);
+  fastify.post('/api/quality/secrets/scan', handleRunSecretScan);
 };

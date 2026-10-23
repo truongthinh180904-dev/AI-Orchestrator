@@ -13,6 +13,7 @@ import { QualityConfigService } from './services/quality-config-service.js';
 import { QualityRunner } from './services/quality-runner.js';
 import { ScopeDiffService } from './services/scope-diff-service.js';
 import { ReviewerService } from './services/reviewer-service.js';
+import { SecurityCheckService } from './services/security-check-service.js';
 import { createExecutionManager } from './adapters/execution-manager.js';
 import { healthRoutes } from './routes/health.js';
 import { taskRoutes } from './routes/tasks.js';
@@ -212,6 +213,14 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       config: options.config,
     });
 
+  const securityCheckService =
+    options.securityCheckService ??
+    new SecurityCheckService({
+      db,
+      repositoryRegistry: options.repositoryRegistry,
+      qualityCheckRepo: qualityRunner ? undefined : undefined,
+    });
+
   // Register routes
   await server.register(healthRoutes);
   await server.register(taskRoutes, { taskService });
@@ -225,6 +234,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     qualityRunner,
     scopeDiffService,
     reviewerService,
+    securityCheckService,
   });
 
   return server;

@@ -9,3 +9,4 @@ export * from './report-repository.js';
 export * from './plan-repository.js';
 export * from './quality-check-repository.js';
 export * from './review-finding-repository.js';
+export * from './security-check-repository.js';
