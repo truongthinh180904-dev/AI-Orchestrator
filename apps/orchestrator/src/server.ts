@@ -10,6 +10,7 @@ import { RunService } from './services/run-service.js';
 import { TaskScheduler } from './services/task-scheduler.js';
 import { PlannerService } from './services/planner-service.js';
 import { QualityConfigService } from './services/quality-config-service.js';
+import { QualityRunner } from './services/quality-runner.js';
 import { createExecutionManager } from './adapters/execution-manager.js';
 import { healthRoutes } from './routes/health.js';
 import { taskRoutes } from './routes/tasks.js';
@@ -44,6 +45,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
         case 'RUN_NOT_FOUND':
         case 'FILE_NOT_FOUND':
         case 'PLAN_NOT_FOUND':
+        case 'QUALITY_RECORD_NOT_FOUND':
           statusCode = 404;
           break;
         case 'TASK_ALREADY_EXISTS':
@@ -181,6 +183,13 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       db,
     });
 
+  const qualityRunner =
+    options.qualityRunner ??
+    new QualityRunner({
+      db,
+      qualityConfigService,
+    });
+
   // Register routes
   await server.register(healthRoutes);
   await server.register(taskRoutes, { taskService });
@@ -189,7 +198,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   await server.register(runRoutes, { runService });
   await server.register(schedulerRoutes, { scheduler: taskScheduler });
   await server.register(planRoutes, { plannerService });
-  await server.register(qualityRoutes, { qualityConfigService });
+  await server.register(qualityRoutes, { qualityConfigService, qualityRunner });
 
   return server;
 }

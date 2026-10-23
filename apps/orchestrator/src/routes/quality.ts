@@ -1,10 +1,21 @@
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { RepoQualityConfigInputSchema, type ParsedConfig } from '@ai-orchestrator/shared';
+import {
+  RepoQualityConfigInputSchema,
+  QualityCommandInputSchema,
+  QualityStageSchema,
+  QualityCommandStatusSchema,
+  type QualityCommandDefinition,
+  normalizeQualityCommand,
+  type ParsedConfig,
+  AppError,
+} from '@ai-orchestrator/shared';
 import type { QualityConfigService } from '../services/quality-config-service.js';
+import type { QualityRunner } from '../services/quality-runner.js';
 
 export interface QualityRoutesOptions {
   qualityConfigService: QualityConfigService;
+  qualityRunner: QualityRunner;
 }
 
 const RepoParamsSchema = z.object({
@@ -15,6 +26,14 @@ const TaskParamsSchema = z.object({
   id: z.string().min(1, 'Task ID is required'),
 });
 
+const RunParamsSchema = z.object({
+  id: z.string().min(1, 'Run ID is required'),
+});
+
+const RecordParamsSchema = z.object({
+  id: z.string().min(1, 'Record ID is required'),
+});
+
 const ResolveQualityBodySchema = z.object({
   repoId: z.string().optional(),
   repoPath: z.string().optional(),
@@ -23,8 +42,26 @@ const ResolveQualityBodySchema = z.object({
   workbookConfig: z.record(z.string(), z.unknown()).optional(),
 });
 
+const RunQualityPipelineBodySchema = z.object({
+  repoId: z.string().optional(),
+  repoPath: z.string().optional(),
+  taskId: z.string().optional(),
+  runId: z.string().optional(),
+  stopOnFirstFailure: z.boolean().optional(),
+  commands: z.array(QualityCommandInputSchema).optional(),
+});
+
+const QualityRecordQuerySchema = z.object({
+  taskId: z.string().optional(),
+  runId: z.string().optional(),
+  stage: QualityStageSchema.optional(),
+  status: QualityCommandStatusSchema.optional(),
+  limit: z.coerce.number().int().positive().optional(),
+  offset: z.coerce.number().int().nonnegative().optional(),
+});
+
 export const qualityRoutes: FastifyPluginAsync<QualityRoutesOptions> = async (fastify, opts) => {
-  const { qualityConfigService } = opts;
+  const { qualityConfigService, qualityRunner } = opts;
 
   // GET /repos/:id/quality-config & /api/repos/:id/quality-config
   const handleGetRepoQualityConfig = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
@@ -72,4 +109,96 @@ export const qualityRoutes: FastifyPluginAsync<QualityRoutesOptions> = async (fa
 
   fastify.put('/repos/:id/quality-config', handleUpdateRepoQualityConfig);
   fastify.put('/api/repos/:id/quality-config', handleUpdateRepoQualityConfig);
+
+  // POST /quality/run & /api/quality/run
+  const handleRunQualityPipeline = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    const body = RunQualityPipelineBodySchema.parse(request.body ?? {});
+
+    let result;
+    if (body.commands && body.commands.length > 0) {
+      const cwd = body.repoPath ?? (body.repoId ? qualityConfigService.resolveRepoPath(body.repoId).repoPath : process.cwd());
+      const normalizedCommands = body.commands
+        .map((cmd) =>
+          normalizeQualityCommand('custom', cmd, {
+            cwd,
+          }),
+        )
+        .filter((cmd): cmd is QualityCommandDefinition => cmd !== null);
+      result = await qualityRunner.runPipeline(normalizedCommands, {
+        taskId: body.taskId,
+        runId: body.runId,
+        repoPath: cwd,
+        stopOnFirstFailure: body.stopOnFirstFailure,
+      });
+    } else if (body.taskId) {
+      result = await qualityRunner.runForTask(body.taskId, {
+        runId: body.runId,
+        stopOnFirstFailure: body.stopOnFirstFailure,
+      });
+    } else {
+      const target = body.repoId ?? body.repoPath ?? '.';
+      result = await qualityRunner.runForRepo(target, {
+        taskId: body.taskId,
+        runId: body.runId,
+        stopOnFirstFailure: body.stopOnFirstFailure,
+      });
+    }
+
+    return reply.send({ data: result });
+  };
+
+  fastify.post('/quality/run', handleRunQualityPipeline);
+  fastify.post('/api/quality/run', handleRunQualityPipeline);
+
+  // GET /quality/records & /api/quality/records
+  const handleGetQualityRecords = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    const query = QualityRecordQuerySchema.parse(request.query ?? {});
+    const records = qualityRunner.findRecords({
+      task_id: query.taskId,
+      run_id: query.runId,
+      stage: query.stage,
+      status: query.status,
+      limit: query.limit,
+      offset: query.offset,
+    });
+    return reply.send({ data: records });
+  };
+
+  fastify.get('/quality/records', handleGetQualityRecords);
+  fastify.get('/api/quality/records', handleGetQualityRecords);
+
+  // GET /quality/records/:id & /api/quality/records/:id
+  const handleGetQualityRecordById = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    const params = RecordParamsSchema.parse(request.params);
+    const record = qualityRunner.getRecord(params.id);
+    if (!record) {
+      throw new AppError('QUALITY_RECORD_NOT_FOUND', `Quality record not found: ${params.id}`, {
+        id: params.id,
+      });
+    }
+    return reply.send({ data: record });
+  };
+
+  fastify.get('/quality/records/:id', handleGetQualityRecordById);
+  fastify.get('/api/quality/records/:id', handleGetQualityRecordById);
+
+  // GET /tasks/:id/quality-records & /api/tasks/:id/quality-records
+  const handleGetTaskQualityRecords = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    const params = TaskParamsSchema.parse(request.params);
+    const records = qualityRunner.getRecordsForTask(params.id);
+    return reply.send({ data: records });
+  };
+
+  fastify.get('/tasks/:id/quality-records', handleGetTaskQualityRecords);
+  fastify.get('/api/tasks/:id/quality-records', handleGetTaskQualityRecords);
+
+  // GET /runs/:id/quality-records & /api/runs/:id/quality-records
+  const handleGetRunQualityRecords = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    const params = RunParamsSchema.parse(request.params);
+    const records = qualityRunner.getRecordsForRun(params.id);
+    return reply.send({ data: records });
+  };
+
+  fastify.get('/runs/:id/quality-records', handleGetRunQualityRecords);
+  fastify.get('/api/runs/:id/quality-records', handleGetRunQualityRecords);
 };

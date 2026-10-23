@@ -687,3 +687,13 @@
 - **Thứ tự pipeline thực thi**: `getExecutionPipeline` sinh danh sách lệnh kích hoạt theo thứ tự chuẩn `format -> lint -> typecheck -> test -> build -> custom`, tự động bỏ qua stage null hoặc tắt.
 - **Dịch vụ & REST API**: Cung cấp `QualityConfigService` và các endpoint `/repos/:id/quality-config`, `/tasks/:id/quality-config`, `/quality/resolve` tích hợp chặt chẽ với `RepositoryRegistry`.
 - **Dependencies**: Tái sử dụng Zod, better-sqlite3 và Fastify; không thêm dependency bên ngoài mới nào.
+
+## QLT-002: Runner chạy các lệnh, lưu stdout/stderr/exit code — Có bản ghi mỗi lệnh
+- **Migration 006 & Schema `quality_command_records`**: Bổ sung bảng SQLite `quality_command_records` lưu chi tiết mỗi lệnh (`task_id`, `run_id`, `stage`, `command_id`, `name`, `command`, `exe`, `args`, `cwd`, `exit_code`, `signal`, `status`, `stdout`, `stderr`, `duration_ms`, `started_at`, `finished_at`, `created_at`).
+- **Kho lưu trữ `QualityCheckRepository`**: Quản lý CRUD bản ghi kiểm định, hỗ trợ tạo đơn lẻ hoặc `createBatch` trong transaction SQLite an toàn.
+- **Thực thi tiến trình an toàn**: `QualityRunner.runCommand` chạy lệnh qua `ProcessAdapter` (`child_process.spawn`), cấm shell động; stream và lưu trữ `stdout`/`stderr` có giới hạn chống tràn bộ nhớ.
+- **Xử lý Timeout & Hủy tiến trình**: Giám sát timeout theo `cmd.timeout_ms`; khi quá hạn tự động dừng tiến trình (SIGTERM -> SIGKILL) và gán trạng thái `TIMEOUT`.
+- **Cơ chế Pipeline & Dừng khi lỗi**: `runPipeline` chạy tuần tự; khi gặp lỗi tại stage bắt buộc và `stopOnFirstFailure: true`, các stage còn lại tự động ghi nhận bản ghi `SKIPPED`.
+- **Báo cáo kiểm định tổng hợp**: Tự động lưu `quality_report` vào bảng `reports` khi có `run_id` hoặc `task_id`.
+- **REST API Endpoints**: Bổ sung `POST /api/quality/run`, `GET /api/quality/records`, `GET /api/quality/records/:id`, `GET /api/tasks/:id/quality-records`, `GET /api/runs/:id/quality-records`.
+- **Dependencies**: Tái sử dụng Zod, better-sqlite3 và Fastify; không thêm dependency bên ngoài mới nào.

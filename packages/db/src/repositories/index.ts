@@ -7,3 +7,4 @@ export * from './agent-lock-repository.js';
 export * from './checkpoint-repository.js';
 export * from './report-repository.js';
 export * from './plan-repository.js';
+export * from './quality-check-repository.js';

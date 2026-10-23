@@ -121,3 +121,106 @@ export function getExecutionPipeline(config: RepoQualityConfig): QualityCommandD
 
   return pipeline;
 }
+
+/**
+ * Execution status for a single quality verification command.
+ */
+export const QualityCommandStatusSchema = z.enum([
+  'SUCCESS',
+  'FAILURE',
+  'TIMEOUT',
+  'ERROR',
+  'SKIPPED',
+]);
+
+export type QualityCommandStatus = z.infer<typeof QualityCommandStatusSchema>;
+
+/**
+ * Record of a single executed quality command, including captured stdout, stderr, and exit code.
+ */
+export const QualityCommandRecordSchema = z.object({
+  id: z.string().min(1, 'Record ID cannot be empty'),
+  task_id: z.string().nullable().default(null),
+  run_id: z.string().nullable().default(null),
+  stage: QualityStageSchema,
+  command_id: z.string().min(1, 'Command ID cannot be empty'),
+  name: z.string().min(1, 'Command name cannot be empty'),
+  command: z.string().min(1, 'Command cannot be empty'),
+  exe: z.string().min(1, 'Executable cannot be empty'),
+  args: z.array(z.string()).default([]),
+  cwd: z.string().min(1, 'Working directory cannot be empty'),
+  exit_code: z.number().nullable().default(null),
+  signal: z.string().nullable().default(null),
+  status: QualityCommandStatusSchema,
+  stdout: z.string().default(''),
+  stderr: z.string().default(''),
+  duration_ms: z.number().int().nonnegative().default(0),
+  started_at: z.string(),
+  finished_at: z.string(),
+  created_at: z.string(),
+});
+
+export type QualityCommandRecord = z.infer<typeof QualityCommandRecordSchema>;
+
+/**
+ * Input schema for creating a QualityCommandRecord.
+ */
+export const CreateQualityCommandRecordInputSchema = z.object({
+  id: z.string().min(1).optional(),
+  task_id: z.string().nullable().optional(),
+  run_id: z.string().nullable().optional(),
+  stage: QualityStageSchema,
+  command_id: z.string().min(1, 'Command ID is required'),
+  name: z.string().min(1, 'Command name is required'),
+  command: z.string().min(1, 'Command is required'),
+  exe: z.string().min(1, 'Executable is required'),
+  args: z.array(z.string()).optional().default([]),
+  cwd: z.string().min(1, 'Working directory is required'),
+  exit_code: z.number().nullable().optional().default(null),
+  signal: z.string().nullable().optional().default(null),
+  status: QualityCommandStatusSchema,
+  stdout: z.string().optional().default(''),
+  stderr: z.string().optional().default(''),
+  duration_ms: z.number().int().nonnegative().optional().default(0),
+  started_at: z.string().optional(),
+  finished_at: z.string().optional(),
+  created_at: z.string().optional(),
+});
+
+export type CreateQualityCommandRecordInput = z.input<typeof CreateQualityCommandRecordInputSchema>;
+export type CreateQualityCommandRecordData = z.output<typeof CreateQualityCommandRecordInputSchema>;
+
+/**
+ * Result of running a quality verification pipeline.
+ */
+export const QualityPipelineResultSchema = z.object({
+  task_id: z.string().nullable().default(null),
+  run_id: z.string().nullable().default(null),
+  repo_path: z.string().min(1),
+  success: z.boolean(),
+  total_commands: z.number().int().nonnegative(),
+  passed_commands: z.number().int().nonnegative(),
+  failed_commands: z.number().int().nonnegative(),
+  skipped_commands: z.number().int().nonnegative(),
+  duration_ms: z.number().int().nonnegative(),
+  records: z.array(QualityCommandRecordSchema),
+  started_at: z.string(),
+  finished_at: z.string(),
+});
+
+export type QualityPipelineResult = z.infer<typeof QualityPipelineResultSchema>;
+
+/**
+ * Filter schema for querying quality records.
+ */
+export const QualityRecordFilterSchema = z.object({
+  task_id: z.string().optional(),
+  run_id: z.string().optional(),
+  stage: QualityStageSchema.optional(),
+  status: QualityCommandStatusSchema.optional(),
+  limit: z.number().int().positive().optional(),
+  offset: z.number().int().nonnegative().optional(),
+});
+
+export type QualityRecordFilter = z.infer<typeof QualityRecordFilterSchema>;
+
