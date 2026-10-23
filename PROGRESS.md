@@ -58,6 +58,6 @@ Trạng thái: `TODO` | `IN_PROGRESS` | `DONE` | `FAILED` | `BLOCKED`
 | OPS-002 | DONE | 1 | bdedb95 | Hoàn thành lúc 2026-10-23 19:00 +07:00 |
 | OPS-003 | DONE | 1 | 6503a93 | Hoàn thành lúc 2026-10-23 19:24 +07:00 |
 | OPS-004 | DONE | 1 | 7f50b25 | Hoàn thành lúc 2026-10-23 19:52 +07:00 |
-| OPS-005 | TODO | 0 | | |
+| OPS-005 | DONE | 1 | 561c62d | Hoàn thành lúc 2026-10-23 20:20 +07:00 |
 | OPS-006 | TODO | 0 | | |
 | OPS-007 | TODO | 0 | | |
