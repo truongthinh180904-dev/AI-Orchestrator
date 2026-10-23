@@ -11,6 +11,8 @@ import {
   ApprovePlanBodySchema,
   RejectPlanBodySchema,
   ExecutePlanBodySchema,
+  OrchestratePlanBodySchema,
+  StepPlanBodySchema,
   UpdatePlanBodySchema,
 } from '../types.js';
 
@@ -141,12 +143,65 @@ export const planRoutes: FastifyPluginAsync<PlanRoutesOptions> = async (fastify,
   const handleExecute = async (request: FastifyRequest, reply: FastifyReply) => {
     const params = PlanParamsSchema.parse(request.params);
     const body = ExecutePlanBodySchema.parse(request.body ?? {});
+    if (body.orchestrate || body.autoStart) {
+      const result = await plannerService.orchestratePlan(params.id, {
+        dryRun: body.dryRun,
+        autoVerify: body.autoVerify,
+        autoRetry: body.autoRetry,
+        timeoutMs: body.timeoutMs,
+      });
+      return reply.status(200).send({ data: result });
+    }
     const result = plannerService.executePlan(params.id, body);
     return reply.status(200).send({ data: result });
   };
 
   fastify.post('/plans/:id/execute', handleExecute);
   fastify.post('/api/plans/:id/execute', handleExecute);
+
+  // POST /plans/:id/orchestrate & POST /api/plans/:id/orchestrate
+  const handleOrchestrate = async (request: FastifyRequest, reply: FastifyReply) => {
+    const params = PlanParamsSchema.parse(request.params);
+    const body = OrchestratePlanBodySchema.parse(request.body ?? {});
+    const result = await plannerService.orchestratePlan(params.id, body);
+    return reply.status(200).send({ data: result });
+  };
+
+  fastify.post('/plans/:id/orchestrate', handleOrchestrate);
+  fastify.post('/api/plans/:id/orchestrate', handleOrchestrate);
+
+  // POST /plans/:id/step & POST /api/plans/:id/step
+  const handleStep = async (request: FastifyRequest, reply: FastifyReply) => {
+    const params = PlanParamsSchema.parse(request.params);
+    const body = StepPlanBodySchema.parse(request.body ?? {});
+    const result = await plannerService.stepPlan(params.id, body);
+    return reply.status(200).send({ data: result });
+  };
+
+  fastify.post('/plans/:id/step', handleStep);
+  fastify.post('/api/plans/:id/step', handleStep);
+
+  // POST /plans/:id/dispatch & POST /api/plans/:id/dispatch
+  const handleDispatch = async (request: FastifyRequest, reply: FastifyReply) => {
+    const params = PlanParamsSchema.parse(request.params);
+    const tasks = plannerService.materializePlanTasks(params.id);
+    return reply.status(200).send({ data: { planId: params.id, tasks } });
+  };
+
+  fastify.post('/plans/:id/dispatch', handleDispatch);
+  fastify.post('/api/plans/:id/dispatch', handleDispatch);
+
+  // GET /plans/:id/execution & GET /api/plans/:id/execution & /plans/:id/status
+  const handleGetExecution = async (request: FastifyRequest) => {
+    const params = PlanParamsSchema.parse(request.params);
+    const summary = plannerService.getPlanExecutionSummary(params.id);
+    return { data: summary };
+  };
+
+  fastify.get('/plans/:id/execution', handleGetExecution);
+  fastify.get('/api/plans/:id/execution', handleGetExecution);
+  fastify.get('/plans/:id/status', handleGetExecution);
+  fastify.get('/api/plans/:id/status', handleGetExecution);
 
   // DELETE /plans/:id & DELETE /api/plans/:id
   const handleDelete = async (request: FastifyRequest) => {

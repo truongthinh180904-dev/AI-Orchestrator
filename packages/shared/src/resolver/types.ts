@@ -26,6 +26,8 @@ function booleanSchema() {
 export interface ResolveReadyOptions {
   /** Lọc theo feature_id nếu có */
   featureId?: string;
+  /** Lọc theo plan_id nếu có */
+  planId?: string;
   /** Lọc theo phase nếu có */
   phase?: string;
   /** Lọc theo repository nếu có */

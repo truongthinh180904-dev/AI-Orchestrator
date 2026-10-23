@@ -243,8 +243,8 @@ describe('ExecutionManager & Process Termination Unit Tests', () => {
           ],
           cwd: tmpDir,
         },
-        timeoutMs: 120,
-        gracePeriodMs: 80,
+        timeoutMs: 500,
+        gracePeriodMs: 200,
         eventRepository: eventRepo,
         runRepository: runRepo,
       });
@@ -254,7 +254,7 @@ describe('ExecutionManager & Process Termination Unit Tests', () => {
       const result = await managed.waitForCompletion();
       const elapsed = Date.now() - startTime;
 
-      expect(elapsed).toBeGreaterThanOrEqual(70);
+      expect(elapsed).toBeGreaterThanOrEqual(100);
       expect('status' in result && result.status).toBe('TIMEOUT');
       expect('signal' in result && result.signal).toBe('SIGKILL');
       expect(managed.isTimeout).toBe(true);

@@ -36,6 +36,7 @@ export type SchedulerStatus = z.infer<typeof SchedulerStatusSchema>;
 export const ScheduleNextOptionsSchema = z.object({
   workerType: z.string().optional(),
   featureId: z.string().optional(),
+  planId: z.string().optional(),
   phase: z.string().optional(),
   autoVerify: z.boolean().optional(),
   timeoutMs: z.number().optional(),

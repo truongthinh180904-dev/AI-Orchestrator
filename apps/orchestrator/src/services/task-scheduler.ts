@@ -18,6 +18,7 @@ export const DEFAULT_AGENT_LOCK_ID = 'default_agent';
 export interface AcquireTaskOptions {
   workerType?: string;
   featureId?: string;
+  planId?: string;
   phase?: string;
   lockId?: string;
 }
@@ -146,6 +147,7 @@ export class TaskScheduler {
       const readyTasks = this.taskRepo.findReadyTasks(
         {
           feature_id: options?.featureId,
+          plan_id: options?.planId,
           phase: options?.phase,
         },
         {
@@ -211,6 +213,7 @@ export class TaskScheduler {
 
     const acquireResult = this.acquireNextTask({
       featureId: options?.featureId,
+      planId: options?.planId,
       phase: options?.phase,
       workerType: options?.workerType,
       lockId: options?.lockId,

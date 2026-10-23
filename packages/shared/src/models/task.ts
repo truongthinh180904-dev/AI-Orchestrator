@@ -21,6 +21,7 @@ export type TaskStatus = z.infer<typeof TaskStatusSchema>;
 export const TaskSchema = z.object({
   id: z.string().min(1, 'Task id cannot be empty'),
   feature_id: z.string().nullable().default(null),
+  plan_id: z.string().nullable().default(null),
   title: z.string().min(1, 'Task title cannot be empty'),
   description: z.string().nullable().default(null),
   phase: z.string().nullable().default(null),
@@ -48,6 +49,7 @@ export type TaskWithDependencies = z.infer<typeof TaskWithDependenciesSchema>;
 export const CreateTaskInputSchema = z.object({
   id: z.string().min(1, 'Task id cannot be empty'),
   feature_id: z.string().nullable().optional(),
+  plan_id: z.string().nullable().optional(),
   title: z.string().min(1, 'Task title cannot be empty'),
   description: z.string().nullable().optional(),
   phase: z.string().nullable().optional(),
@@ -69,6 +71,7 @@ export type CreateTaskInput = z.input<typeof CreateTaskInputSchema>;
 
 export const UpdateTaskInputSchema = z.object({
   feature_id: z.string().nullable().optional(),
+  plan_id: z.string().nullable().optional(),
   title: z.string().min(1, 'Task title cannot be empty').optional(),
   description: z.string().nullable().optional(),
   phase: z.string().nullable().optional(),
@@ -90,6 +93,7 @@ export type UpdateTaskInput = z.input<typeof UpdateTaskInputSchema>;
 export const TaskFilterSchema = z.object({
   status: TaskStatusSchema.optional(),
   feature_id: z.string().optional(),
+  plan_id: z.string().optional(),
   phase: z.string().optional(),
 });
 

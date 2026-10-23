@@ -172,8 +172,32 @@ export type RejectPlanBodyInput = z.infer<typeof RejectPlanBodySchema>;
 export const ExecutePlanBodySchema = z.object({
   executor: z.string().optional().default('orchestrator'),
   dryRun: z.boolean().optional().default(false),
+  orchestrate: z.boolean().optional().default(false),
+  autoStart: z.boolean().optional().default(false),
+  autoVerify: z.boolean().optional().default(true),
+  autoRetry: z.boolean().optional().default(true),
+  timeoutMs: z.number().int().min(1000).optional(),
 });
 export type ExecutePlanBodyInput = z.infer<typeof ExecutePlanBodySchema>;
+
+export const OrchestratePlanBodySchema = z.object({
+  autoVerify: z.boolean().optional().default(true),
+  autoRetry: z.boolean().optional().default(true),
+  timeoutMs: z.number().int().min(1000).optional(),
+  dryRun: z.boolean().optional().default(false),
+  maxSteps: z.number().int().min(1).optional(),
+  waitBackoff: z.boolean().optional().default(false),
+});
+export type OrchestratePlanBodyInput = z.infer<typeof OrchestratePlanBodySchema>;
+
+export const StepPlanBodySchema = z.object({
+  autoVerify: z.boolean().optional(),
+  autoRetry: z.boolean().optional(),
+  timeoutMs: z.number().optional(),
+  lockId: z.string().optional(),
+  waitBackoff: z.boolean().optional(),
+});
+export type StepPlanBodyInput = z.infer<typeof StepPlanBodySchema>;
 
 export const UpdatePlanBodySchema = z.object({
   title: z.string().min(1).optional(),

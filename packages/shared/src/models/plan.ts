@@ -321,9 +321,69 @@ export type RejectPlanInput = z.input<typeof RejectPlanInputSchema>;
 export const ExecutePlanInputSchema = z.object({
   executor: z.string().optional().default('orchestrator'),
   dryRun: z.boolean().optional().default(false),
+  orchestrate: z.boolean().optional().default(false),
+  autoStart: z.boolean().optional().default(false),
+  autoVerify: z.boolean().optional().default(true),
+  autoRetry: z.boolean().optional().default(true),
+  timeoutMs: z.number().int().min(1000).optional(),
 });
 
 export type ExecutePlanInput = z.input<typeof ExecutePlanInputSchema>;
+
+export const OrchestratePlanInputSchema = z.object({
+  autoVerify: z.boolean().optional().default(true),
+  autoRetry: z.boolean().optional().default(true),
+  timeoutMs: z.number().int().min(1000).optional(),
+  dryRun: z.boolean().optional().default(false),
+  maxSteps: z.number().int().min(1).optional(),
+  waitBackoff: z.boolean().optional().default(false),
+});
+
+export type OrchestratePlanInput = z.input<typeof OrchestratePlanInputSchema>;
+
+export const PlanTaskExecutionStateSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  status: z.string(),
+  dependencies: z.array(z.string()),
+  attempts: z.number(),
+  max_attempts: z.number(),
+  priority: z.number(),
+  timeout_minutes: z.number(),
+  worker_type: z.string(),
+});
+
+export type PlanTaskExecutionState = z.infer<typeof PlanTaskExecutionStateSchema>;
+
+export const PlanExecutionSummarySchema = z.object({
+  planId: z.string(),
+  title: z.string(),
+  status: PlanStatusSchema,
+  isComplete: z.boolean(),
+  hasFailed: z.boolean(),
+  totalTasks: z.number().int(),
+  completedTasks: z.number().int(),
+  runningTasks: z.number().int(),
+  failedTasks: z.number().int(),
+  readyTasks: z.number().int(),
+  pendingTasks: z.number().int(),
+  executionOrder: z.array(z.string()),
+  executedOrder: z.array(z.string()),
+  tasks: z.array(PlanTaskExecutionStateSchema),
+});
+
+export type PlanExecutionSummary = z.infer<typeof PlanExecutionSummarySchema>;
+
+export const OrchestratePlanResultSchema = z.object({
+  plan: PlanSchema,
+  finalStatus: PlanStatusSchema,
+  executedTasks: z.array(z.string()),
+  steps: z.array(z.any()),
+  summary: PlanExecutionSummarySchema,
+  dryRun: z.boolean().default(false),
+});
+
+export type OrchestratePlanResult = z.infer<typeof OrchestratePlanResultSchema>;
 
 /**
  * Comprehensive summary of plan review details.

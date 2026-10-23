@@ -11,6 +11,11 @@ import {
   type RejectPlanInput,
   type UpdatePlanInput,
   type ExecutePlanInput,
+  type OrchestratePlanInput,
+  type OrchestratePlanResult,
+  type PlanExecutionSummary,
+  type ScheduleNextOptions,
+  type TaskWithDependencies,
   GeneratePlanInputSchema,
   PlanContentSchema,
   extractJsonPlan,
@@ -23,12 +28,16 @@ import { processAdapter, ProcessAdapter, type ProcessHandle } from '../adapters/
 import type { RepositoryRegistry } from '../adapters/repository-registry.js';
 import { getOrchestratorConfig } from '../config.js';
 import { PlanReviewService, type ExecutePlanResult } from './plan-review-service.js';
+import { PlanOrchestrator, type StepPlanResult } from './plan-orchestrator.js';
+import type { TaskScheduler } from './task-scheduler.js';
 
 export interface PlannerServiceOptions {
   db: Database.Database;
   processAdapter?: ProcessAdapter;
   repositoryRegistry?: RepositoryRegistry;
   config?: Partial<Env>;
+  taskScheduler?: TaskScheduler;
+  orchestrator?: PlanOrchestrator;
 }
 
 export function buildPlannerPrompt(
@@ -78,6 +87,7 @@ export class PlannerService {
   private readonly repositoryRegistry?: RepositoryRegistry;
   private readonly config: Partial<Env>;
   private readonly reviewService: PlanReviewService;
+  private readonly orchestrator?: PlanOrchestrator;
 
   constructor(options: PlannerServiceOptions) {
     this.db = options.db;
@@ -88,6 +98,16 @@ export class PlannerService {
       db: this.db,
       planRepo: this.planRepo,
     });
+
+    if (options.orchestrator) {
+      this.orchestrator = options.orchestrator;
+    } else if (options.taskScheduler) {
+      this.orchestrator = new PlanOrchestrator({
+        db: this.db,
+        planRepo: this.planRepo,
+        scheduler: options.taskScheduler,
+      });
+    }
 
     let config: Partial<Env> = options.config ?? {};
     if (!options.config) {
@@ -327,7 +347,41 @@ export class PlannerService {
     return this.reviewService.assertCanExecute(id);
   }
 
+  getOrchestrator(): PlanOrchestrator {
+    if (!this.orchestrator) {
+      throw new AppError(
+        'ORCHESTRATOR_NOT_INITIALIZED',
+        'PlanOrchestrator was not configured for PlannerService. Please provide taskScheduler or orchestrator in options.',
+      );
+    }
+    return this.orchestrator;
+  }
+
+  materializePlanTasks(id: string): TaskWithDependencies[] {
+    return this.getOrchestrator().materializePlanTasks(id);
+  }
+
+  getPlanExecutionSummary(id: string): PlanExecutionSummary {
+    return this.getOrchestrator().getPlanExecutionSummary(id);
+  }
+
+  async stepPlan(id: string, options?: ScheduleNextOptions): Promise<StepPlanResult> {
+    return this.getOrchestrator().stepPlan(id, options);
+  }
+
+  async orchestratePlan(id: string, options?: OrchestratePlanInput): Promise<OrchestratePlanResult> {
+    return this.getOrchestrator().orchestratePlan(id, options);
+  }
+
   executePlan(id: string, input?: ExecutePlanInput): ExecutePlanResult {
-    return this.reviewService.executePlan(id, input);
+    const result = this.reviewService.executePlan(id, input);
+    if (this.orchestrator && !input?.dryRun) {
+      try {
+        this.orchestrator.materializePlanTasks(id);
+      } catch {
+        // Ignored
+      }
+    }
+    return result;
   }
 }

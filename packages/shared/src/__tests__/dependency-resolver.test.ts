@@ -14,6 +14,7 @@ function createTask(
   return {
     id,
     feature_id: 'feat-1',
+    plan_id: null,
     title: `Task ${id}`,
     description: `Description for ${id}`,
     phase: 'phase-1',

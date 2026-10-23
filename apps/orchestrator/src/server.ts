@@ -164,6 +164,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       db,
       repositoryRegistry: options.repositoryRegistry,
       config: options.config,
+      taskScheduler,
     });
 
   // Register routes

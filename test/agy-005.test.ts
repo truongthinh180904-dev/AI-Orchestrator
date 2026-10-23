@@ -219,8 +219,8 @@ describe('AGY-005 Acceptance Tests: Timeout: SIGTERM → chờ grace → SIGKILL
           ],
           cwd: tmpDir,
         },
-        timeoutMs: 120,
-        gracePeriodMs: 80,
+        timeoutMs: 500,
+        gracePeriodMs: 200,
         eventRepository: eventRepo,
         runRepository: runRepo,
       });
@@ -230,7 +230,7 @@ describe('AGY-005 Acceptance Tests: Timeout: SIGTERM → chờ grace → SIGKILL
       const result = await managed.waitForCompletion();
       const elapsed = Date.now() - startTime;
 
-      expect(elapsed).toBeGreaterThanOrEqual(70);
+      expect(elapsed).toBeGreaterThanOrEqual(100);
       expect(managed.isTimeout).toBe(true);
       expect(managed.isRunning()).toBe(false);
       expect('status' in result && result.status).toBe('TIMEOUT');

@@ -188,6 +188,9 @@ export class DependencyResolver {
       if (options?.featureId && task.feature_id !== options.featureId) {
         continue;
       }
+      if (options?.planId && task.plan_id !== options.planId) {
+        continue;
+      }
       if (options?.phase && task.phase !== options.phase) {
         continue;
       }
@@ -249,6 +252,7 @@ export class DependencyResolver {
 
     for (const task of this.tasks.values()) {
       if (options?.featureId && task.feature_id !== options.featureId) continue;
+      if (options?.planId && task.plan_id !== options.planId) continue;
       if (options?.phase && task.phase !== options.phase) continue;
       if (options?.repository && task.repository !== options.repository) continue;
 

@@ -667,3 +667,14 @@
 - **Centralized Error Handling**: Ánh xạ mã lỗi `PLAN_NOT_APPROVED` và `INVALID_PLAN_STATE_TRANSITION` về HTTP 400 Bad Request trong Fastify server.
 - **Dependencies**: Tái sử dụng Zod, better-sqlite3 và Fastify; không thêm dependency ngoài mới nào.
 
+## ORC-008: Điều phối theo plan đã duyệt — Chạy đúng thứ tự dependency
+- **Migration 005 & Data Model**: Bổ sung `005_plan_orchestration.sql` thêm cột `plan_id` và index vào `tasks`; cập nhật `TaskSchema`, `TaskRepository`, và `ResolveReadyOptions`.
+- **Dịch vụ PlanOrchestrator**: Quản lý điều phối kế hoạch, đồng bộ tasks sang SQLite (`materializePlanTasks`), thực thi từng bước (`stepPlan`) hoặc toàn diện (`orchestratePlan`).
+- **Ràng buộc "Chưa duyệt → không thực thi"**: Kế hoạch chưa ở trạng thái `APPROVED` hoặc `EXECUTING` lập tức bị chặn với lỗi `PLAN_NOT_APPROVED` (HTTP 400).
+- **Nghiệm thu "Chạy đúng thứ tự dependency"**: Tích hợp `TaskScheduler` và `DependencyResolver` bảo đảm task chỉ được acquire và thực thi khi toàn bộ dependencies đã `DONE`.
+- **Đồ thị DAG phân nhánh & hội tụ**: Root chạy đầu, các nhánh chạy tuần tự theo lock 1 agent, task hội tụ (Join) chỉ kích hoạt khi toàn bộ nhánh phụ thuộc đạt `DONE`.
+- **Cô lập lỗi (Failure Isolation)**: Khi một task thất bại hết lượt retry, các task phụ thuộc phía sau tuyệt đối không được kích hoạt; kế hoạch tự động chuyển sang `FAILED`.
+- **Hoàn tất kế hoạch**: Khi 100% tasks trong plan đạt trạng thái `DONE`, trạng thái kế hoạch tự động chuyển sang `COMPLETED`.
+- **REST API & Dependencies**: Bổ sung `POST /plans/:id/dispatch`, `/plans/:id/step`, `/plans/:id/orchestrate`, `GET /plans/:id/execution`; không thêm dependency bên ngoài mới nào.
+
+

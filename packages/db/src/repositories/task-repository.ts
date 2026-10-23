@@ -104,14 +104,15 @@ export class TaskRepository {
       this.db
         .prepare(`
           INSERT INTO tasks (
-            id, feature_id, title, description, phase, worker_type, repository,
+            id, feature_id, plan_id, title, description, phase, worker_type, repository,
             acceptance_criteria, test_commands, priority, max_attempts, timeout_minutes,
             status, attempts, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `)
         .run(
           validated.id,
           validated.feature_id ?? null,
+          validated.plan_id ?? null,
           validated.title,
           validated.description ?? null,
           validated.phase ?? null,
@@ -170,6 +171,10 @@ export class TaskRepository {
       conditions.push('feature_id = ?');
       params.push(validatedFilter.feature_id);
     }
+    if (validatedFilter?.plan_id) {
+      conditions.push('plan_id = ?');
+      params.push(validatedFilter.plan_id);
+    }
     if (validatedFilter?.phase) {
       conditions.push('phase = ?');
       params.push(validatedFilter.phase);
@@ -214,6 +219,10 @@ export class TaskRepository {
     if (validated.feature_id !== undefined) {
       updates.push('feature_id = ?');
       params.push(validated.feature_id);
+    }
+    if (validated.plan_id !== undefined) {
+      updates.push('plan_id = ?');
+      params.push(validated.plan_id);
     }
     if (validated.title !== undefined) {
       updates.push('title = ?');
@@ -335,6 +344,10 @@ export class TaskRepository {
     if (validatedFilter?.feature_id) {
       conditions.push('feature_id = ?');
       params.push(validatedFilter.feature_id);
+    }
+    if (validatedFilter?.plan_id) {
+      conditions.push('plan_id = ?');
+      params.push(validatedFilter.plan_id);
     }
     if (validatedFilter?.phase) {
       conditions.push('phase = ?');
@@ -477,10 +490,10 @@ export class TaskRepository {
     const now = new Date().toISOString();
     const insertTaskStmt = this.db.prepare(`
       INSERT INTO tasks (
-        id, feature_id, title, description, phase, worker_type, repository,
+        id, feature_id, plan_id, title, description, phase, worker_type, repository,
         acceptance_criteria, test_commands, priority, max_attempts, timeout_minutes,
         status, attempts, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const bulkTx = this.db.transaction(() => {
@@ -490,6 +503,7 @@ export class TaskRepository {
         insertTaskStmt.run(
           task.id,
           task.feature_id ?? null,
+          task.plan_id ?? null,
           task.title,
           task.description ?? null,
           task.phase ?? null,
@@ -652,6 +666,7 @@ export class TaskRepository {
     return resolver.getReadyTasks({
       ...options,
       featureId: filter?.feature_id ?? options?.featureId,
+      planId: filter?.plan_id ?? options?.planId,
       phase: filter?.phase ?? options?.phase,
     });
   }
@@ -669,6 +684,7 @@ export class TaskRepository {
       // Chỉ tìm các task 'TODO' có đầy đủ dependencies 'DONE'
       const eligibleTodoTasks = resolver.getReadyTasks({
         featureId: filter?.feature_id,
+        planId: filter?.plan_id,
         phase: filter?.phase,
         candidateStatuses: ['TODO'],
       });
