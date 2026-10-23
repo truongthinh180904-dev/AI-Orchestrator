@@ -205,10 +205,16 @@ describe('Layout & Navigation Components (UI-001)', () => {
       expect(screen.getByTestId('card-releases')).toBeDefined();
     });
 
-    it('TasksPage renders tasks section placeholder', () => {
-      render(<TasksPage />);
+    it('TasksPage renders tasks dashboard view', async () => {
+      const mockApi = {
+        getTasks: vi.fn().mockResolvedValue([]),
+        getFeatures: vi.fn().mockResolvedValue([]),
+      } as unknown as ApiClient;
+      render(<TasksPage apiClient={mockApi} />);
       expect(screen.getByTestId('dashboard-tasks-page')).toBeDefined();
-      expect(screen.getByTestId('tasks-placeholder-box')).toBeDefined();
+      await waitFor(() => {
+        expect(screen.getByTestId('task-feature-dashboard')).toBeDefined();
+      });
     });
 
     it('ControlsPage renders controls section placeholder', () => {

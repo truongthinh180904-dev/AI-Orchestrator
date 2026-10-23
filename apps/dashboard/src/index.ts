@@ -10,3 +10,5 @@ export * from './components/Header.js';
 export * from './components/Navigation.js';
 export * from './components/Footer.js';
 export * from './components/DashboardLayout.js';
+export * from './components/StatusBadge.js';
+export * from './components/TaskFeatureDashboard.js';

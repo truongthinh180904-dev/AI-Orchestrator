@@ -818,3 +818,12 @@
 - Không thêm dependency bên ngoài mới; tái sử dụng React 19, Next.js 15 và `@testing-library/react`.
 
 
+## UI-002: Danh sách task/feature + bộ lọc — Dữ liệu từ API
+- Xây dựng component `TaskFeatureDashboard` hiển thị danh sách nhiệm vụ và tính năng kết nối trực tiếp với Orchestrator API (`/api/tasks` và `/api/features`).
+- Hỗ trợ 2 tab chuyển đổi: `Tác vụ (Tasks)` và `Tính năng (Features)` với huy hiệu đếm số lượng thời gian thực.
+- Cung cấp thanh thẻ thống kê tóm tắt (summary metrics bar): Tổng số, Done, Running/Verifying, Ready, Todo, Failed/Blocked.
+- Bộ lọc đa tiêu chí cho Tasks: lọc theo trạng thái (`TASK_STATUSES`), lọc theo tính năng (`feature_id`), lọc theo phase (`phase`), và ô tìm kiếm từ khóa (`search`).
+- Bộ lọc cho Features: lọc theo trạng thái tính năng (`FEATURE_STATUSES`) và tìm kiếm từ khóa theo ID/tên/mô tả.
+- Xây dựng component `StatusBadge` chuẩn hóa màu sắc và chỉ báo trạng thái trực quan cho tất cả các trạng thái Task và Feature.
+- Xử lý đầy đủ các trạng thái giao diện: loading indicator, error banner kèm nút "Thử lại", và empty states khi không có dữ liệu khớp bộ lọc.
+- Tích hợp vào Next.js App Router tại `apps/dashboard/src/app/tasks/page.tsx`, không thêm dependency bên ngoài mới.
