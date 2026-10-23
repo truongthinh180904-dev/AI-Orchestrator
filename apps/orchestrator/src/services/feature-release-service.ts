@@ -31,6 +31,7 @@ import {
   type CreateFeaturePrResult,
   type FeatureReleaseReportResult,
   type FeatureRelease,
+  type FeatureReleaseStatus,
   FeatureComponentTasksResultSchema,
   DefineFeatureTasksInputSchema,
   FeatureReleasePolicyOptionsSchema,
@@ -1308,5 +1309,12 @@ export class FeatureReleaseService {
       report_id: reportId,
       generated_at: new Date().toISOString(),
     });
+  }
+
+  /**
+   * Liệt kê các bản ghi release của các feature theo bộ lọc.
+   */
+  listReleases(filter?: { feature_id?: string; status?: FeatureReleaseStatus }): FeatureRelease[] {
+    return this.releaseRepo.list(filter);
   }
 }

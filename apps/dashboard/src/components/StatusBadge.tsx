@@ -18,7 +18,18 @@ export function getStatusStyle(status: string): StatusStyle {
     case 'DONE':
     case 'SUCCESS':
     case 'COMPLETED':
+    case 'MERGED':
       return { bg: '#dcfce7', text: '#166534', border: '#86efac', dot: '#16a34a' };
+    case 'READY_FOR_REVIEW':
+      return { bg: '#fef3c7', text: '#92400e', border: '#fcd34d', dot: '#d97706' };
+    case 'PR_CREATED':
+      return { bg: '#f3e8ff', text: '#6b21a8', border: '#d8b4fe', dot: '#9333ea' };
+    case 'PUSHED':
+      return { bg: '#e0e7ff', text: '#3730a3', border: '#a5b4fc', dot: '#4f46e5' };
+    case 'COMMITTED':
+      return { bg: '#dbeafe', text: '#1e40af', border: '#93c5fd', dot: '#2563eb' };
+    case 'BRANCH_CREATED':
+      return { bg: '#e0f2fe', text: '#0369a1', border: '#7dd3fc', dot: '#0284c7' };
     case 'RUNNING':
       return { bg: '#dbeafe', text: '#1e40af', border: '#93c5fd', dot: '#2563eb' };
     case 'VERIFYING':

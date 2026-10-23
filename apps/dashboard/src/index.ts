@@ -19,3 +19,4 @@ export * from './components/LiveLogViewer.js';
 export * from './components/DiffViewer.js';
 export * from './components/TestReportReviewFindings.js';
 export * from './components/SystemControls.js';
+export * from './components/ReleaseDashboard.js';

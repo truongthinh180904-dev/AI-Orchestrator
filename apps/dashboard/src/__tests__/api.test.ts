@@ -517,4 +517,245 @@ describe('ApiClient', () => {
       );
     });
   });
+
+  describe('UI-008 Release & PR API Client', () => {
+    it('getReleases calls GET /api/releases with optional filters', async () => {
+      const mockReleases = [
+        {
+          id: 'rel-1',
+          feature_id: 'FEAT-001',
+          branch: 'feature/FEAT-001',
+          base_branch: 'main',
+          commit_sha: 'a'.repeat(40),
+          pr_url: 'https://github.com/org/repo/pull/1',
+          status: 'READY_FOR_REVIEW',
+          metadata: {},
+          created_at: '2026-10-23T10:00:00Z',
+          updated_at: '2026-10-23T10:00:00Z',
+        },
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ data: mockReleases }),
+      });
+
+      const res = await client.getReleases({ feature_id: 'FEAT-001', status: 'READY_FOR_REVIEW' });
+      expect(res).toEqual(mockReleases);
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:3000/api/releases?feature_id=FEAT-001&status=READY_FOR_REVIEW',
+        expect.objectContaining({ method: 'GET' }),
+      );
+    });
+
+    it('getFeatureRelease calls GET /api/features/:id/release', async () => {
+      const mockRelease = {
+        id: 'rel-1',
+        feature_id: 'FEAT-001',
+        branch: 'feature/FEAT-001',
+        base_branch: 'main',
+        commit_sha: 'b'.repeat(40),
+        pr_url: 'https://github.com/org/repo/pull/42',
+        status: 'PR_CREATED',
+        metadata: {},
+        created_at: '2026-10-23T10:00:00Z',
+        updated_at: '2026-10-23T10:00:00Z',
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ data: mockRelease }),
+      });
+
+      const res = await client.getFeatureRelease('FEAT-001');
+      expect(res).toEqual(mockRelease);
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:3000/api/features/FEAT-001/release',
+        expect.objectContaining({ method: 'GET' }),
+      );
+    });
+
+    it('getFeatureBranch calls GET /api/features/:id/branch', async () => {
+      const mockBranchInfo = {
+        release_id: 'rel-1',
+        feature_id: 'FEAT-001',
+        branch: 'feature/FEAT-001',
+        base_branch: 'main',
+        commit_sha: 'c'.repeat(40),
+        status: 'BRANCH_CREATED',
+        exists_locally: true,
+        created_at: '2026-10-23T10:00:00Z',
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ data: mockBranchInfo }),
+      });
+
+      const res = await client.getFeatureBranch('FEAT-001', './repo');
+      expect(res).toEqual(mockBranchInfo);
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:3000/api/features/FEAT-001/branch?repo_path=.%2Frepo',
+        expect.objectContaining({ method: 'GET' }),
+      );
+    });
+
+    it('getFeaturePr calls GET /api/features/:id/pr', async () => {
+      const mockPr = {
+        feature_id: 'FEAT-001',
+        release_id: 'rel-1',
+        branch: 'feature/FEAT-001',
+        base_branch: 'main',
+        commit_sha: 'd'.repeat(40),
+        pr_url: 'https://github.com/org/repo/pull/99',
+        pr_number: 99,
+        status: 'READY_FOR_REVIEW',
+        quality_report_id: 'rep-1',
+        quality_report_path: 'reports/FEAT-001.md',
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ data: mockPr }),
+      });
+
+      const res = await client.getFeaturePr('FEAT-001');
+      expect(res).toEqual(mockPr);
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:3000/api/features/FEAT-001/pr',
+        expect.objectContaining({ method: 'GET' }),
+      );
+    });
+
+    it('getFeatureReleaseReport calls GET /api/features/:id/release-report', async () => {
+      const mockReport = {
+        feature_id: 'FEAT-001',
+        feature_name: 'Auth',
+        release_id: 'rel-1',
+        branch: 'feature/FEAT-001',
+        base_branch: 'main',
+        commit_sha: 'e'.repeat(40),
+        pr_url: 'https://github.com/org/repo/pull/5',
+        status: 'READY_FOR_REVIEW',
+        report_content: '# Release Report',
+        report_path: 'reports/FEAT-001.md',
+        report_id: 'rep-1',
+        generated_at: '2026-10-23T10:00:00Z',
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ data: mockReport }),
+      });
+
+      const res = await client.getFeatureReleaseReport('FEAT-001');
+      expect(res).toEqual(mockReport);
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:3000/api/features/FEAT-001/release-report',
+        expect.objectContaining({ method: 'GET' }),
+      );
+    });
+
+    it('checkFeatureReleaseReadiness calls POST /api/features/:id/release-check', async () => {
+      const mockReadiness = {
+        feature_id: 'FEAT-001',
+        feature_name: 'Auth',
+        can_release: true,
+        status: 'READY',
+        blocking_reasons: [],
+        rule_evaluations: [],
+        task_summary: {
+          total_tasks: 2,
+          required_count: 2,
+          completed_count: 2,
+          pending_count: 0,
+          failed_count: 0,
+          missing_count: 0,
+          is_all_required_done: true,
+          ready_for_release: true,
+        },
+        manifest: {},
+        integration_test_results: [],
+        checked_at: '2026-10-23T10:00:00Z',
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ data: mockReadiness }),
+      });
+
+      const res = await client.checkFeatureReleaseReadiness('FEAT-001', { execute_integration_tests: false });
+      expect(res).toEqual(mockReadiness);
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:3000/api/features/FEAT-001/release-check',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ execute_integration_tests: false }),
+        }),
+      );
+    });
+
+    it('createFeatureBranch, commitFeatureRelease, pushFeatureRelease, createFeaturePr work as expected', async () => {
+      // createFeatureBranch
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ data: { release_id: 'rel-1', branch: 'feature/FEAT-001' } }),
+      });
+      const bRes = await client.createFeatureBranch('FEAT-001', { base_branch: 'main' });
+      expect(bRes.branch).toBe('feature/FEAT-001');
+
+      // commitFeatureRelease
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ data: { release_id: 'rel-1', commit_sha: '1'.repeat(40) } }),
+      });
+      const cRes = await client.commitFeatureRelease('FEAT-001', { message: 'feat: release' });
+      expect(cRes.commit_sha).toBe('1'.repeat(40));
+
+      // pushFeatureRelease
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ data: { release_id: 'rel-1', confirmed_remote: true } }),
+      });
+      const pRes = await client.pushFeatureRelease('FEAT-001', { remote: 'origin' });
+      expect(pRes.confirmed_remote).toBe(true);
+
+      // confirmRemoteBranch
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ data: { feature_id: 'FEAT-001', confirmed: true } }),
+      });
+      const rRes = await client.confirmRemoteBranch('FEAT-001', { remote: 'origin' });
+      expect(rRes.confirmed).toBe(true);
+
+      // createFeaturePr
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({
+          data: {
+            release_id: 'rel-1',
+            feature_id: 'FEAT-001',
+            branch: 'feature/FEAT-001',
+            base_branch: 'main',
+            commit_sha: '1'.repeat(40),
+            pr_url: 'https://github.com/org/repo/pull/77',
+            status: 'READY_FOR_REVIEW',
+          },
+        }),
+      });
+      const prRes = await client.createFeaturePr('FEAT-001', { title: 'Release FEAT-001' });
+      expect(prRes.pr_url).toBe('https://github.com/org/repo/pull/77');
+    });
+  });
 });

@@ -33,6 +33,23 @@ import {
   type ExecutePlanInput,
   type Run,
   type TaskStatus,
+  type FeatureRelease,
+  type FeatureReleaseStatus,
+  type FeatureBranchInfo,
+  type CreateFeatureBranchInput,
+  type CreateFeatureBranchResult,
+  type CommitFeatureReleaseInput,
+  type CommitFeatureReleaseResult,
+  type PushFeatureReleaseInput,
+  type PushFeatureReleaseResult,
+  type ConfirmRemoteBranchInput,
+  type ConfirmRemoteBranchResult,
+  type CreateFeaturePrInput,
+  type CreateFeaturePrResult,
+  type FeatureReleaseReportResult,
+  type FeatureReleaseCheckResult,
+  type CheckReleaseReadinessInput,
+  type FeatureComponentTasksResult,
 } from '@ai-orchestrator/shared';
 
 export type StreamConnectionState =
@@ -629,6 +646,173 @@ export class ApiClient {
         body: JSON.stringify(options ?? {}),
       },
     );
+  }
+
+  // --- UI-008: Release & PR API (REL-001 -> REL-006) ---
+
+  async getReleases(filter?: {
+    feature_id?: string;
+    status?: FeatureReleaseStatus;
+  }): Promise<FeatureRelease[]> {
+    const query = new URLSearchParams();
+    if (filter?.feature_id) query.set('feature_id', filter.feature_id);
+    if (filter?.status) query.set('status', filter.status);
+
+    const qs = query.toString();
+    const endpoint = `/api/releases${qs ? `?${qs}` : ''}`;
+    return this.request<FeatureRelease[]>(endpoint, {
+      method: 'GET',
+    });
+  }
+
+  async getFeatureRelease(featureId: string): Promise<FeatureRelease> {
+    return this.request<FeatureRelease>(`/api/features/${encodeURIComponent(featureId)}/release`, {
+      method: 'GET',
+    });
+  }
+
+  async getFeatureBranch(featureId: string, repoPath?: string): Promise<FeatureBranchInfo> {
+    const query = new URLSearchParams();
+    if (repoPath) query.set('repo_path', repoPath);
+    const qs = query.toString();
+    return this.request<FeatureBranchInfo>(
+      `/api/features/${encodeURIComponent(featureId)}/branch${qs ? `?${qs}` : ''}`,
+      { method: 'GET' },
+    );
+  }
+
+  async getFeaturePr(featureId: string): Promise<{
+    feature_id: string;
+    release_id: string;
+    branch: string;
+    base_branch: string;
+    commit_sha: string;
+    pr_url: string;
+    pr_number: number | null;
+    status: FeatureReleaseStatus;
+    quality_report_id: string | null;
+    quality_report_path: string | null;
+  }> {
+    return this.request<{
+      feature_id: string;
+      release_id: string;
+      branch: string;
+      base_branch: string;
+      commit_sha: string;
+      pr_url: string;
+      pr_number: number | null;
+      status: FeatureReleaseStatus;
+      quality_report_id: string | null;
+      quality_report_path: string | null;
+    }>(`/api/features/${encodeURIComponent(featureId)}/pr`, {
+      method: 'GET',
+    });
+  }
+
+  async getFeatureReleaseReport(featureId: string): Promise<FeatureReleaseReportResult> {
+    return this.request<FeatureReleaseReportResult>(
+      `/api/features/${encodeURIComponent(featureId)}/release-report`,
+      { method: 'GET' },
+    );
+  }
+
+  async getFeatureComponentTasks(featureId: string): Promise<FeatureComponentTasksResult> {
+    return this.request<FeatureComponentTasksResult>(
+      `/api/features/${encodeURIComponent(featureId)}/tasks`,
+      { method: 'GET' },
+    );
+  }
+
+  async checkFeatureReleaseReadiness(
+    featureId: string,
+    options?: CheckReleaseReadinessInput & { assert?: boolean },
+  ): Promise<FeatureReleaseCheckResult> {
+    return this.request<FeatureReleaseCheckResult>(
+      `/api/features/${encodeURIComponent(featureId)}/release-check`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(options ?? {}),
+      },
+    );
+  }
+
+  async createFeatureBranch(
+    featureId: string,
+    options?: CreateFeatureBranchInput,
+  ): Promise<CreateFeatureBranchResult> {
+    return this.request<CreateFeatureBranchResult>(
+      `/api/features/${encodeURIComponent(featureId)}/branch`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(options ?? {}),
+      },
+    );
+  }
+
+  async commitFeatureRelease(
+    featureId: string,
+    options?: CommitFeatureReleaseInput,
+  ): Promise<CommitFeatureReleaseResult> {
+    return this.request<CommitFeatureReleaseResult>(
+      `/api/features/${encodeURIComponent(featureId)}/commit`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(options ?? {}),
+      },
+    );
+  }
+
+  async pushFeatureRelease(
+    featureId: string,
+    options?: PushFeatureReleaseInput,
+  ): Promise<PushFeatureReleaseResult> {
+    return this.request<PushFeatureReleaseResult>(
+      `/api/features/${encodeURIComponent(featureId)}/push`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(options ?? {}),
+      },
+    );
+  }
+
+  async confirmRemoteBranch(
+    featureId: string,
+    options?: ConfirmRemoteBranchInput,
+  ): Promise<ConfirmRemoteBranchResult> {
+    const query = new URLSearchParams();
+    if (options?.branch) query.set('branch', options.branch);
+    if (options?.remote) query.set('remote', options.remote);
+    if (options?.repo_path) query.set('repo_path', options.repo_path);
+    const qs = query.toString();
+    return this.request<ConfirmRemoteBranchResult>(
+      `/api/features/${encodeURIComponent(featureId)}/remote-status${qs ? `?${qs}` : ''}`,
+      { method: 'GET' },
+    );
+  }
+
+  async createFeaturePr(
+    featureId: string,
+    options?: CreateFeaturePrInput,
+  ): Promise<CreateFeaturePrResult> {
+    return this.request<CreateFeaturePrResult>(`/api/features/${encodeURIComponent(featureId)}/pr`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(options ?? {}),
+    });
   }
 
   getRunStreamUrl(runId: string, options?: { afterSeq?: number; live?: boolean }): string {

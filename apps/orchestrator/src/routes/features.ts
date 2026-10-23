@@ -10,6 +10,8 @@ import {
   PushFeatureReleaseInputSchema,
   ConfirmRemoteBranchInputSchema,
   CreateFeaturePrInputSchema,
+  FeatureReleaseStatusSchema,
+  type FeatureReleaseStatus,
   AppError,
 } from '@ai-orchestrator/shared';
 
@@ -272,6 +274,19 @@ export const featureRoutes: FastifyPluginAsync<FeatureRoutesOptions> = async (fa
 
   fastify.get('/features/:id/release-report', handleGetReleaseReport);
   fastify.get('/api/features/:id/release-report', handleGetReleaseReport);
+
+  // GET /releases & GET /api/releases (UI-008)
+  const handleListReleases = async (request: FastifyRequest) => {
+    const query = request.query as { feature_id?: string; status?: string } | undefined;
+    const filter: { feature_id?: string; status?: FeatureReleaseStatus } = {};
+    if (query?.feature_id) filter.feature_id = query.feature_id;
+    if (query?.status) filter.status = FeatureReleaseStatusSchema.parse(query.status);
+    const releases = featureService.listReleases(filter);
+    return { data: releases };
+  };
+
+  fastify.get('/releases', handleListReleases);
+  fastify.get('/api/releases', handleListReleases);
 };
 
 

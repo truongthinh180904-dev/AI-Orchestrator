@@ -878,3 +878,14 @@
 - Thao tác phê duyệt kế hoạch: form phê duyệt (`btn-approve-plan`) với reviewer name/comments, form từ chối (`btn-reject-plan`) bắt buộc lý do, gửi lại review (`btn-submit-plan`) và thực thi kế hoạch (`btn-execute-plan`).
 - Trạng thái điều khiển an toàn: toàn bộ nút bấm tự động disabled khi đang gửi request (`isSubmitting`), hiển thị banner lỗi và thông báo thành công trực quan.
 - Tích hợp route `/controls` (`apps/dashboard/src/app/controls/page.tsx`), navigation và re-export tại root index; không thêm dependency mới; tuân thủ TypeScript `strict: true`.
+
+## UI-008: Trang release/PR — Hiện branch, SHA, PR URL
+- Mở rộng backend Orchestrator với route `GET /releases` và `GET /api/releases` hỗ trợ lọc theo `feature_id` và `status` mà không phá vỡ route hiện hữu.
+- Bổ sung `listReleases` vào `FeatureReleaseService` và `FeatureService` để truy vấn danh sách phát hành từ `FeatureReleaseRepository`.
+- Bổ sung các phương thức release vào `ApiClient` (`apps/dashboard/src/lib/api.ts`): `getReleases`, `getFeatureRelease`, `getFeatureBranch`, `getFeaturePr`, `getFeatureReleaseReport`, `getFeatureComponentTasks`, `checkFeatureReleaseReadiness`, `createFeatureBranch`, `commitFeatureRelease`, `pushFeatureRelease`, `confirmRemoteBranch`, `createFeaturePr`.
+- Xây dựng component `ReleaseDashboard` (`apps/dashboard/src/components/ReleaseDashboard.tsx`) đáp ứng đúng tiêu chí ROADMAP: hiển thị rõ ràng branch (release/base), commit SHA (short SHA + full SHA tooltip + nút copy), và PR URL (link GitHub kèm target _blank và số hiệu PR).
+- Cung cấp modal xem báo cáo phát hành Markdown (`modal-release-report`) và modal kiểm tra tính sẵn sàng release (`modal-readiness-check`) hiển thị quy tắc đánh giá và lý do chặn nếu có.
+- Hỗ trợ form tạo Pull Request trực tiếp (`modal-create-pr`) kèm cờ draft, tự động vô hiệu hóa các nút điều khiển khi đang gửi request (`isSubmitting`) và hiển thị banner thông báo lỗi/thành công.
+- Tích hợp trang `/releases` (`apps/dashboard/src/app/releases/page.tsx`), navigation item, và cập nhật `StatusBadge` cho các trạng thái phát hành (`READY_FOR_REVIEW`, `PR_CREATED`, `PUSHED`, `COMMITTED`, `BRANCH_CREATED`, `MERGED`).
+- Không thêm dependency bên ngoài mới; tuân thủ TypeScript `strict: true` và nguyên tắc frontend chỉ hiển thị/điều khiển, toàn bộ logic thuộc backend Orchestrator.
+

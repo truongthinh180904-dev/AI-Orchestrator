@@ -23,6 +23,7 @@ import {
   type CreateFeaturePrResult,
   type FeatureReleaseReportResult,
   type FeatureRelease,
+  type FeatureReleaseStatus,
 } from '@ai-orchestrator/shared';
 import { FeatureReleaseService, type FeatureReleaseServiceOptions } from './feature-release-service.js';
 
@@ -173,6 +174,13 @@ export class FeatureService {
    */
   async getFeatureReleaseReport(id: string): Promise<FeatureReleaseReportResult> {
     return this.releaseService.getFeatureReleaseReport(id);
+  }
+
+  /**
+   * Liệt kê các bản ghi release theo bộ lọc.
+   */
+  listReleases(filter?: { feature_id?: string; status?: FeatureReleaseStatus }): FeatureRelease[] {
+    return this.releaseService.listReleases(filter);
   }
 }
 
