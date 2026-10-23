@@ -25,9 +25,10 @@ describe('Migration Runner', () => {
       expect(firstRun).toContain('011_quality_gates.sql');
       expect(firstRun).toContain('012_feature_releases.sql');
       expect(firstRun).toContain('013_resource_quotas.sql');
+      expect(firstRun).toContain('014_execution_schedules.sql');
 
       const appliedAfterFirst = getAppliedMigrations(db);
-      expect(appliedAfterFirst.length).toBe(13);
+      expect(appliedAfterFirst.length).toBe(14);
       expect(appliedAfterFirst[0]?.name).toBe('001_initial_schema.sql');
       expect(appliedAfterFirst[1]?.name).toBe('002_agent_lock.sql');
       expect(appliedAfterFirst[2]?.name).toBe('003_checkpoints.sql');
@@ -41,6 +42,7 @@ describe('Migration Runner', () => {
       expect(appliedAfterFirst[10]?.name).toBe('011_quality_gates.sql');
       expect(appliedAfterFirst[11]?.name).toBe('012_feature_releases.sql');
       expect(appliedAfterFirst[12]?.name).toBe('013_resource_quotas.sql');
+      expect(appliedAfterFirst[13]?.name).toBe('014_execution_schedules.sql');
       expect(appliedAfterFirst[0]?.applied_at).toBeTruthy();
       expect(appliedAfterFirst[1]?.applied_at).toBeTruthy();
       expect(appliedAfterFirst[2]?.applied_at).toBeTruthy();
@@ -54,13 +56,14 @@ describe('Migration Runner', () => {
       expect(appliedAfterFirst[10]?.applied_at).toBeTruthy();
       expect(appliedAfterFirst[11]?.applied_at).toBeTruthy();
       expect(appliedAfterFirst[12]?.applied_at).toBeTruthy();
+      expect(appliedAfterFirst[13]?.applied_at).toBeTruthy();
 
       // Second run: idempotent, returns empty array, no error
       const secondRun = runMigrations(db);
       expect(secondRun).toEqual([]);
 
       const appliedAfterSecond = getAppliedMigrations(db);
-      expect(appliedAfterSecond.length).toBe(13);
+      expect(appliedAfterSecond.length).toBe(14);
     } finally {
       db.close();
     }
@@ -91,6 +94,8 @@ describe('Migration Runner', () => {
       expect(tableNames).toContain('repair_loops');
       expect(tableNames).toContain('repair_iterations');
       expect(tableNames).toContain('quota_events');
+      expect(tableNames).toContain('execution_schedules');
+      expect(tableNames).toContain('schedule_events');
     } finally {
       db.close();
     }

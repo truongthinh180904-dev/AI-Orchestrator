@@ -17,6 +17,7 @@ import { SecurityCheckService } from './services/security-check-service.js';
 import { RepairLoopService } from './services/repair-loop-service.js';
 import { QualityGateService } from './services/quality-gate-service.js';
 import { ResourceQuotaManager } from './services/resource-quota-manager.js';
+import { ExecutionScheduleManager } from './services/execution-schedule-manager.js';
 import { createExecutionManager } from './adapters/execution-manager.js';
 import { healthRoutes } from './routes/health.js';
 import { taskRoutes } from './routes/tasks.js';
@@ -27,6 +28,7 @@ import { schedulerRoutes } from './routes/scheduler.js';
 import { planRoutes } from './routes/plans.js';
 import { qualityRoutes } from './routes/quality.js';
 import { quotaRoutes } from './routes/quota.js';
+import { scheduleRoutes } from './routes/schedule.js';
 
 export async function buildServer(options: BuildServerOptions): Promise<FastifyInstance> {
   const { db, logger = false } = options;
@@ -215,12 +217,19 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       db,
     });
 
+  const executionScheduleManager =
+    options.executionScheduleManager ??
+    new ExecutionScheduleManager({
+      db,
+    });
+
   const taskScheduler =
     options.taskScheduler ??
     new TaskScheduler({
       db,
       runService,
       resourceQuotaManager,
+      executionScheduleManager,
     });
 
   const plannerService =
@@ -298,6 +307,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   await server.register(runRoutes, { runService });
   await server.register(schedulerRoutes, { scheduler: taskScheduler });
   await server.register(quotaRoutes, { quotaManager: resourceQuotaManager });
+  await server.register(scheduleRoutes, { scheduleManager: executionScheduleManager });
   await server.register(planRoutes, { plannerService });
   await server.register(qualityRoutes, {
     qualityConfigService,

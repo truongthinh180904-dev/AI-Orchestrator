@@ -13,3 +13,4 @@ export * from './retry/index.js';
 export * from './quality/index.js';
 export * from './security/index.js';
 export * from './resources/index.js';
+export * from './schedule/index.js';

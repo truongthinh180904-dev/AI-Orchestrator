@@ -897,3 +897,12 @@
 - Tích hợp `ResourceQuotaManager` vào `TaskScheduler` (`acquireNextTask` và `step`): chặn khi tài nguyên vượt ngưỡng, kích hoạt exponential backoff khi gặp lỗi 429/quota, và tự động dọn dẹp slot.
 - Xây dựng các REST API endpoint: `GET /system/quota`, `PATCH /system/quota/config`, `POST /system/quota/reset`, `GET /system/quota/events`.
 - Không thêm dependency bên ngoài mới; tuân thủ TypeScript `strict: true` và nguyên tắc MVP "Tối đa 1 coding process tại một thời điểm".
+
+
+## OPS-002: Lịch chạy theo khung giờ — Tuân thủ lịch
+- Triển khai `ExecutionScheduleManager` (`apps/orchestrator/src/services/execution-schedule-manager.ts`) quản lý khung giờ chạy cho phép (ALLOW), khung giờ chặn (BLOCK), chế độ 24/7 (ALWAYS) và deadline `stop_at_hour`.
+- Xây dựng module thẩm định `schedule-evaluator.ts` dùng ECMAScript `Intl.DateTimeFormat` và thuật toán số học biên thời gian (boundary check) tức thời (< 1ms), xử lý chính xác khung giờ xuyên đêm qua nửa đêm và múi giờ IANA.
+- Bổ sung migration `014_execution_schedules.sql` và `ExecutionScheduleRepository` trong `@ai-orchestrator/db` lưu cấu hình và nhật ký kiểm toán sự kiện `schedule_events`.
+- Tích hợp `ExecutionScheduleManager` vào `TaskScheduler`: `acquireNextTask`, `step`, và `runUntilEmpty` tuân thủ lịch nghiêm ngặt, từ chối cấp slot khi ngoài khung giờ và tự động dừng loop.
+- Cung cấp các REST API endpoint: `GET/PATCH/PUT /system/schedule`, `POST /system/schedule/evaluate`, `GET /system/schedule/events`.
+- Không thêm dependency bên ngoài mới; tuân thủ TypeScript `strict: true` và nguyên tắc MVP.

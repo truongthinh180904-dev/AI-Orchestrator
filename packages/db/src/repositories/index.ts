@@ -14,3 +14,4 @@ export * from './repair-loop-repository.js';
 export * from './quality-gate-repository.js';
 export * from './feature-release-repository.js';
 export * from './quota-event-repository.js';
+export * from './execution-schedule-repository.js';

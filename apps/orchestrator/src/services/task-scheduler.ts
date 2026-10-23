@@ -7,6 +7,7 @@ import {
   type ScheduleNextOptions,
   type ScheduleStepResult,
   type ResourceAcquisitionResult,
+  type ScheduleEvaluationResult,
   isQuotaOrRateLimitError,
   RetryPolicy,
   type RetryPolicyInput,
@@ -16,6 +17,7 @@ import { TaskStateService } from './task-state-service.js';
 import type { QualityGateService } from './quality-gate-service.js';
 import type { RunService } from './run-service.js';
 import type { ResourceQuotaManager } from './resource-quota-manager.js';
+import type { ExecutionScheduleManager } from './execution-schedule-manager.js';
 
 export const DEFAULT_AGENT_LOCK_ID = 'default_agent';
 
@@ -36,9 +38,11 @@ export interface AcquireTaskResult {
     | 'NO_READY_TASKS'
     | 'CONCURRENCY_LIMIT_EXCEEDED'
     | 'ACTIVE_RUN_EXISTS'
-    | 'RESOURCE_QUOTA_BLOCKED';
+    | 'RESOURCE_QUOTA_BLOCKED'
+    | 'OUTSIDE_SCHEDULE_WINDOW';
   activeTaskId?: string;
   quotaResult?: ResourceAcquisitionResult;
+  scheduleResult?: ScheduleEvaluationResult;
 }
 
 export interface TaskSchedulerOptions {
@@ -46,6 +50,7 @@ export interface TaskSchedulerOptions {
   runService: RunService;
   qualityGateService?: QualityGateService;
   resourceQuotaManager?: ResourceQuotaManager;
+  executionScheduleManager?: ExecutionScheduleManager;
   lockId?: string;
   autoVerify?: boolean;
   retryPolicy?: RetryPolicy | RetryPolicyInput;
@@ -62,6 +67,7 @@ export class TaskScheduler {
   private readonly runService: RunService;
   private readonly qualityGateService?: QualityGateService;
   private readonly resourceQuotaManager?: ResourceQuotaManager;
+  private readonly executionScheduleManager?: ExecutionScheduleManager;
   private readonly lockId: string;
   private readonly autoVerifyDefault: boolean;
   private readonly retryPolicy: RetryPolicy;
@@ -78,6 +84,7 @@ export class TaskScheduler {
     this.runService = options.runService;
     this.qualityGateService = options.qualityGateService;
     this.resourceQuotaManager = options.resourceQuotaManager;
+    this.executionScheduleManager = options.executionScheduleManager;
     this.taskRepo = new TaskRepository(this.db);
     this.lockRepo = new AgentLockRepository(this.db);
     this.runRepo = new RunRepository(this.db);
@@ -98,6 +105,10 @@ export class TaskScheduler {
 
   get quotaManager(): ResourceQuotaManager | undefined {
     return this.resourceQuotaManager;
+  }
+
+  get scheduleManager(): ExecutionScheduleManager | undefined {
+    return this.executionScheduleManager;
   }
 
   get isRunning(): boolean {
@@ -123,6 +134,18 @@ export class TaskScheduler {
    */
   acquireNextTask(options?: AcquireTaskOptions): AcquireTaskResult {
     const lockId = options?.lockId ?? this.lockId;
+
+    // Check execution schedule window before proceeding
+    if (this.executionScheduleManager) {
+      const scheduleCheck = this.executionScheduleManager.canExecute();
+      if (!scheduleCheck.allowed) {
+        return {
+          acquired: false,
+          reason: 'OUTSIDE_SCHEDULE_WINDOW',
+          scheduleResult: scheduleCheck,
+        };
+      }
+    }
 
     // Check resource and quota manager limits before entering transaction
     if (this.resourceQuotaManager) {
@@ -200,6 +223,18 @@ export class TaskScheduler {
         };
       }
 
+      // Check execution schedule window against candidate task
+      if (this.executionScheduleManager) {
+        const scheduleCheck = this.executionScheduleManager.canExecute();
+        if (!scheduleCheck.allowed) {
+          return {
+            acquired: false,
+            reason: 'OUTSIDE_SCHEDULE_WINDOW' as const,
+            scheduleResult: scheduleCheck,
+          };
+        }
+      }
+
       // Check resource and quota manager against candidate task
       if (this.resourceQuotaManager) {
         const check = this.resourceQuotaManager.canAcquire({ taskId: candidate.id });
@@ -261,6 +296,16 @@ export class TaskScheduler {
         executed: false,
         reason: 'SCHEDULER_PAUSED',
       };
+    }
+
+    if (this.executionScheduleManager) {
+      const scheduleCheck = this.executionScheduleManager.canExecute();
+      if (!scheduleCheck.allowed) {
+        return {
+          executed: false,
+          reason: 'OUTSIDE_SCHEDULE_WINDOW',
+        };
+      }
     }
 
     const acquireResult = this.acquireNextTask({
@@ -579,6 +624,10 @@ export class TaskScheduler {
 
     try {
       while (!this._isStopped && !this._isPaused) {
+        if (this.executionScheduleManager && !this.executionScheduleManager.isAllowed()) {
+          logger.info('Scheduler loop halted: current time is outside allowed execution window');
+          break;
+        }
         const res = await this.step(options);
         if (!res.executed) {
           break;
@@ -645,6 +694,7 @@ export class TaskScheduler {
       activeRunId: this._activeRunId ?? currentLock?.run_id ?? null,
       readyTasksCount: readyTasks.length,
       quotaStatus: this.resourceQuotaManager?.getStatus(),
+      scheduleStatus: this.executionScheduleManager?.getStatus(),
     };
   }
 

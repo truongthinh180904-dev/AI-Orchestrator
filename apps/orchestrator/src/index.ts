@@ -19,10 +19,14 @@ export * from './services/quality-runner.js';
 export * from './services/scope-diff-service.js';
 export * from './services/repair-loop-service.js';
 export * from './services/quality-gate-service.js';
+export * from './services/resource-quota-manager.js';
+export * from './services/execution-schedule-manager.js';
 export * from './routes/runs.js';
 export * from './routes/scheduler.js';
 export * from './routes/plans.js';
 export * from './routes/quality.js';
+export * from './routes/quota.js';
+export * from './routes/schedule.js';
 export { AppError } from '@ai-orchestrator/shared';
 
 export const orchestratorReady = true;
