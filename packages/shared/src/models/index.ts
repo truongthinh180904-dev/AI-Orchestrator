@@ -12,3 +12,4 @@ export * from './agent-lock.js';
 export * from './checkpoint.js';
 export * from './report.js';
 export * from './history.js';
+export * from './plan.js';

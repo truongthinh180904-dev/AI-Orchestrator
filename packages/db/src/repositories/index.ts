@@ -6,3 +6,4 @@ export * from './event-repository.js';
 export * from './agent-lock-repository.js';
 export * from './checkpoint-repository.js';
 export * from './report-repository.js';
+export * from './plan-repository.js';

@@ -10,8 +10,10 @@ export * from './services/import-service.js';
 export * from './services/run-service.js';
 export * from './services/task-scheduler.js';
 export * from './services/task-history-service.js';
+export * from './services/planner-service.js';
 export * from './routes/runs.js';
 export * from './routes/scheduler.js';
+export * from './routes/plans.js';
 export { AppError } from '@ai-orchestrator/shared';
 
 export const orchestratorReady = true;

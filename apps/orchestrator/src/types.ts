@@ -16,6 +16,7 @@ import type Database from 'better-sqlite3';
 import type { ExecutionManager } from './adapters/execution-manager.js';
 import type { RepositoryRegistry } from './adapters/repository-registry.js';
 import type { TaskScheduler } from './services/task-scheduler.js';
+import type { PlannerService } from './services/planner-service.js';
 
 export const ImportRequestSchema = z.object({
   filePath: z.string().optional(),
@@ -137,6 +138,18 @@ export const ReportQuerySchema = z.object({
 });
 export type ReportQueryInput = z.infer<typeof ReportQuerySchema>;
 
+export const PlanParamsSchema = z.object({
+  id: z.string().min(1, 'Plan ID is required'),
+});
+export type PlanParamsInput = z.infer<typeof PlanParamsSchema>;
+
+export const ValidatePlanBodySchema = z.object({
+  rawOutput: z.string().min(1, 'rawOutput is required'),
+  repository: z.string().optional(),
+  feature_id: z.string().nullable().optional(),
+});
+export type ValidatePlanBodyInput = z.infer<typeof ValidatePlanBodySchema>;
+
 export {
   CreateRunApiSchema,
   StopRunApiSchema,
@@ -160,4 +173,5 @@ export interface BuildServerOptions {
   executionManager?: ExecutionManager;
   repositoryRegistry?: RepositoryRegistry;
   taskScheduler?: TaskScheduler;
+  plannerService?: PlannerService;
 }

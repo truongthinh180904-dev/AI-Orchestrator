@@ -646,3 +646,13 @@
 - **Sửa Đổi Ngoài Phạm Vi Cần Thiết**:
   - Cập nhật `packages/db/src/__tests__/migrator.test.ts` phản ánh sự xuất hiện của migration `003_checkpoints.sql` (tổng 3 migrations, bảng `checkpoints`).
 - **Dependencies**: Không thêm bất kỳ dependency bên ngoài nào mới.
+
+## ORC-006: Planner gọi AGY sinh plan JSON (task, scope file, acceptance) từ repo
+- **Cấu trúc Plan Schema Zod**: `PlanTaskSchema` bắt buộc `id`, `title`, `scope_files` (mảng file trong repo, tối thiểu 1 file), `acceptance_criteria` (mảng tiêu chí nghiệm thu, tối thiểu 1 tiêu chí), `dependencies`, `test_commands`, `priority`, `timeout_minutes`, `worker_type`.
+- **Chuẩn hóa linh hoạt bí danh**: `PlanTaskInputSchema` tự động ánh xạ các biến thể bí danh LLM (`files`/`scope` -> `scope_files`, `acceptance` -> `acceptance_criteria`) và chuyển đổi sang schema chuẩn.
+- **Trạng thái Plan**: Quản lý vòng đời `DRAFT`, `PENDING_APPROVAL`, `APPROVED`, `REJECTED`, `EXECUTING`, `COMPLETED`, `FAILED` (mặc định khởi tạo `PENDING_APPROVAL` chuẩn bị cho bước duyệt ORC-007).
+- **Migration 004 & SQLite Persistence**: Thêm `004_plans.sql` và `PlanRepository` hỗ trợ lưu trữ toàn vẹn JSON tasks, raw output, trạng thái phê duyệt và khóa ngoại tới bảng `features`.
+- **Kiểm định đồ thị phụ thuộc (DAG)**: Sử dụng `DependencyGraph` và `validatePlanTasksGraph` để chặn chu trình phụ thuộc (circular dependency), tự phụ thuộc, mã task ID trùng lặp, hoặc tham chiếu task ID không tồn tại trong plan.
+- **Planner Service & Process Execution**: `PlannerService` gọi AGY CLI bằng `ProcessAdapter.spawn` (không dùng shell động) với prompt chuyên biệt, bóc tách JSON an toàn từ markdown fence/raw text, và giám sát timeout watchdog.
+- **REST API Endpoints**: Cung cấp `POST /plans/generate`, `POST /plans/validate`, `GET /plans/:id`, `GET /plans`, `DELETE /plans/:id` (hỗ trợ cả tiền tố `/api`).
+- **Dependencies**: Không thêm bất kỳ dependency bên ngoài nào mới; tái sử dụng Zod, better-sqlite3 và Fastify.
