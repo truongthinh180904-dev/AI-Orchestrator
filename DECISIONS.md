@@ -847,3 +847,14 @@
 - Xây dựng `NotificationBell` (dropdown menu xem danh sách/chưa đọc) và `NotificationToastContainer` (toast nổi góc màn hình) tích hợp vào Header và DashboardLayout.
 - Bổ sung tab `Live Logs (SSE)` (`tab-live`) vào `TaskDetail` cho phép theo dõi trực tiếp tiến trình worker đang chạy.
 - Không thêm dependency bên ngoài mới; tuân thủ TypeScript strict và kiến trúc monorepo.
+
+## UI-005: Diff viewer — Xem diff thật
+- Mở rộng model `TaskDiffData` và `ParsedDiffLine` trong `@ai-orchestrator/shared`, bổ sung hàm trợ năng `parsePatchLines` phân tích dòng patch unified thành kiểu thêm/xóa/chunk/header kèm số dòng.
+- Mở rộng `ApiClient` (`apps/dashboard/src/lib/api.ts`) với các phương thức `getTaskDiff(id, options)`, `getTaskScopeDiff(id, options)` và `compareScopeDiff(input)`.
+- Xây dựng component `DiffViewer` (`apps/dashboard/src/components/DiffViewer.tsx`): hiển thị unified diff thật từ Orchestrator API, tô màu thêm (`+` xanh)/xóa (`-` đỏ)/chunk header (`@@` xanh dương) trực quan.
+- Tích hợp kiểm định Quality Gate QLT-003: hiển thị banner cảnh báo phạm vi (`diff-scope-banner`) và danh sách file lạ ngoài scope (`diff-scope-alien-files`) kèm badge phân loại cho từng file.
+- Hỗ trợ đa dạng bộ lọc và chế độ xem: tìm kiếm file theo tên/đường dẫn, lọc theo scope (Tất cả / Trong scope / File lạ), chuyển đổi chế độ xem (Từng file accordion vs Raw unified patch), thu gọn/mở rộng tất cả, sao chép diff.
+- Tích hợp liền mạch vào `TaskDetail` qua tab `tab-diff` (`Diff & Thay Đổi`) cho phép kiểm tra thay đổi mã nguồn trực tiếp khi theo dõi chi tiết task.
+- Tạo route riêng `/diff` (`apps/dashboard/src/app/diff/page.tsx`) cho phép chọn hoặc nhập task ID bất kỳ, và dynamic route `/tasks/[id]/diff` (`apps/dashboard/src/app/tasks/[id]/diff/page.tsx`).
+- Không thêm dependency bên ngoài mới; tuân thủ TypeScript `strict: true` và nguyên tắc không mock dữ liệu trong đường dẫn chính của dashboard.
+

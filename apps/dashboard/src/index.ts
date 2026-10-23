@@ -16,3 +16,4 @@ export * from './components/StatusBadge.js';
 export * from './components/TaskFeatureDashboard.js';
 export * from './components/TaskDetail.js';
 export * from './components/LiveLogViewer.js';
+export * from './components/DiffViewer.js';

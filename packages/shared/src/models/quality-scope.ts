@@ -50,6 +50,20 @@ export const ScopeDiffResultSchema = z.object({
 
 export type ScopeDiffResult = z.infer<typeof ScopeDiffResultSchema>;
 
+export const TaskDiffDataSchema = z.object({
+  taskId: z.string(),
+  repoPath: z.string(),
+  scopeFiles: z.array(z.string()).default([]),
+  isScopeClean: z.boolean().default(true),
+  outOfScopeFiles: z.array(z.string()).default([]),
+  changedFiles: z.array(z.string()).default([]),
+  fileDiffs: z.array(FileDiffDetailSchema).default([]),
+  rawDiff: z.string().default(''),
+  stats: ScopeDiffStatsSchema.optional(),
+});
+
+export type TaskDiffData = z.infer<typeof TaskDiffDataSchema>;
+
 export const CompareScopeInputSchema = z.object({
   repoPath: z.string().optional(),
   taskId: z.string().optional(),
@@ -60,7 +74,77 @@ export const CompareScopeInputSchema = z.object({
   runId: z.string().optional(),
 });
 
-export type CompareScopeInput = z.infer<typeof CompareScopeInputSchema>;
+export type CompareScopeInput = z.input<typeof CompareScopeInputSchema>;
+
+export interface ParsedDiffLine {
+  type: 'add' | 'delete' | 'chunk' | 'header' | 'context';
+  text: string;
+  oldLineNumber?: number;
+  newLineNumber?: number;
+}
+
+/**
+ * Parses raw unified patch into structured lines with line numbers and line types.
+ */
+export function parsePatchLines(patch: string): ParsedDiffLine[] {
+  if (!patch) return [];
+
+  const lines = patch.split(/\r?\n/);
+  const result: ParsedDiffLine[] = [];
+
+  let oldLine = 0;
+  let newLine = 0;
+
+  for (const line of lines) {
+    if (line.startsWith('@@')) {
+      const match = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+      if (match && match[1] && match[2]) {
+        oldLine = parseInt(match[1], 10);
+        newLine = parseInt(match[2], 10);
+      }
+      result.push({
+        type: 'chunk',
+        text: line,
+      });
+    } else if (
+      line.startsWith('diff --git') ||
+      line.startsWith('index ') ||
+      line.startsWith('--- ') ||
+      line.startsWith('+++ ') ||
+      line.startsWith('new file mode') ||
+      line.startsWith('deleted file mode') ||
+      line.startsWith('similarity index') ||
+      line.startsWith('rename from') ||
+      line.startsWith('rename to')
+    ) {
+      result.push({
+        type: 'header',
+        text: line,
+      });
+    } else if (line.startsWith('+')) {
+      result.push({
+        type: 'add',
+        text: line,
+        newLineNumber: newLine++,
+      });
+    } else if (line.startsWith('-')) {
+      result.push({
+        type: 'delete',
+        text: line,
+        oldLineNumber: oldLine++,
+      });
+    } else {
+      result.push({
+        type: 'context',
+        text: line,
+        oldLineNumber: oldLine++,
+        newLineNumber: newLine++,
+      });
+    }
+  }
+
+  return result;
+}
 
 /**
  * Normalizes file path for consistent matching across POSIX and Windows.

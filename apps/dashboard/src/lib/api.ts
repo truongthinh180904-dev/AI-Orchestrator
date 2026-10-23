@@ -14,6 +14,9 @@ import {
   type Report,
   type ReportFilter,
   type EventRecord,
+  type TaskDiffData,
+  type ScopeDiffResult,
+  type CompareScopeInput,
 } from '@ai-orchestrator/shared';
 
 export type StreamConnectionState =
@@ -187,6 +190,62 @@ export class ApiClient {
   async getTask(id: string): Promise<TaskWithDependencies> {
     return this.request<TaskWithDependencies>(`/api/tasks/${encodeURIComponent(id)}`, {
       method: 'GET',
+    });
+  }
+
+  async getTaskDiff(
+    id: string,
+    options?: {
+      baseRef?: string;
+      targetRef?: string;
+      includeUntracked?: boolean;
+    },
+  ): Promise<TaskDiffData> {
+    const query = new URLSearchParams();
+    if (options?.baseRef) query.set('baseRef', options.baseRef);
+    if (options?.targetRef) query.set('targetRef', options.targetRef);
+    if (options?.includeUntracked !== undefined) {
+      query.set('includeUntracked', String(options.includeUntracked));
+    }
+
+    const qs = query.toString();
+    const endpoint = `/api/tasks/${encodeURIComponent(id)}/diff${qs ? `?${qs}` : ''}`;
+    return this.request<TaskDiffData>(endpoint, {
+      method: 'GET',
+    });
+  }
+
+  async getTaskScopeDiff(
+    id: string,
+    options?: {
+      baseRef?: string;
+      targetRef?: string;
+      includeUntracked?: boolean;
+      runId?: string;
+    },
+  ): Promise<ScopeDiffResult> {
+    const query = new URLSearchParams();
+    if (options?.baseRef) query.set('baseRef', options.baseRef);
+    if (options?.targetRef) query.set('targetRef', options.targetRef);
+    if (options?.includeUntracked !== undefined) {
+      query.set('includeUntracked', String(options.includeUntracked));
+    }
+    if (options?.runId) query.set('runId', options.runId);
+
+    const qs = query.toString();
+    const endpoint = `/api/tasks/${encodeURIComponent(id)}/scope-diff${qs ? `?${qs}` : ''}`;
+    return this.request<ScopeDiffResult>(endpoint, {
+      method: 'GET',
+    });
+  }
+
+  async compareScopeDiff(input: CompareScopeInput): Promise<ScopeDiffResult> {
+    return this.request<ScopeDiffResult>('/api/quality/scope-diff', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(input),
     });
   }
 

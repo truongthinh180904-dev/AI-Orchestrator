@@ -2,9 +2,9 @@ import path from 'node:path';
 import type Database from 'better-sqlite3';
 import {
   type ScopeDiffResult,
+  type TaskDiffData,
   type CompareScopeInput,
   type TaskWithDependencies,
-  type FileDiffDetail,
   CompareScopeInputSchema,
   evaluateScopeCompliance,
   getGitDiff,
@@ -198,16 +198,7 @@ export class ScopeDiffService {
       targetRef?: string;
       includeUntracked?: boolean;
     },
-  ): Promise<{
-    taskId: string;
-    repoPath: string;
-    scopeFiles: string[];
-    isScopeClean: boolean;
-    outOfScopeFiles: string[];
-    changedFiles: string[];
-    fileDiffs: FileDiffDetail[];
-    rawDiff: string;
-  }> {
+  ): Promise<TaskDiffData> {
     const scopeResult = await this.checkTaskScope(taskId, options);
     return {
       taskId,
@@ -218,6 +209,7 @@ export class ScopeDiffService {
       changedFiles: scopeResult.changedFiles,
       fileDiffs: scopeResult.fileDiffs,
       rawDiff: scopeResult.rawDiff,
+      stats: scopeResult.stats,
     };
   }
 }

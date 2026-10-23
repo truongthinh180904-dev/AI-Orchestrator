@@ -13,13 +13,14 @@ import {
 import { ApiClient, api as defaultApi } from '../lib/api.js';
 import { StatusBadge } from './StatusBadge.js';
 import { LiveLogViewer } from './LiveLogViewer.js';
+import { DiffViewer } from './DiffViewer.js';
 
 export interface TaskDetailProps {
   taskId: string;
   apiClient?: ApiClient;
 }
 
-export type InspectorTab = 'checkpoints' | 'reports' | 'events' | 'live';
+export type InspectorTab = 'checkpoints' | 'reports' | 'events' | 'live' | 'diff';
 
 export const TaskDetail: React.FC<TaskDetailProps> = ({ taskId, apiClient }) => {
   const client = apiClient ?? defaultApi;
@@ -777,8 +778,8 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ taskId, apiClient }) => 
                 {attemptsHistory.map((item) => {
                   const isSelected = item.run.id === selectedRunId;
                   const isFailed =
-                    item.result.outcome === 'ERROR' ||
-                    item.result.outcome === 'TIMEOUT' ||
+                    item.result?.outcome === 'ERROR' ||
+                    item.result?.outcome === 'TIMEOUT' ||
                     item.run.status === 'ERROR';
 
                   return (
@@ -844,18 +845,19 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ taskId, apiClient }) => 
                           <span
                             style={{ fontWeight: 600, color: isFailed ? '#dc2626' : '#16a34a' }}
                           >
-                            {item.result.outcome}
+                            {item.result?.outcome ?? item.run.status}
                           </span>
                         </div>
                         <div>
-                          <strong>Thời lượng:</strong> {formatDuration(item.result.duration_ms)}
+                          <strong>Thời lượng:</strong> {formatDuration(item.result?.duration_ms)}
                         </div>
                         <div>
                           <strong>Exit Code:</strong>{' '}
                           {item.run.exit_code != null ? item.run.exit_code : '--'}
                         </div>
                         <div>
-                          <strong>Checkpoints:</strong> {item.result.checkpoint_count}
+                          <strong>Checkpoints:</strong>{' '}
+                          {item.result?.checkpoint_count ?? item.checkpoints?.length ?? 0}
                         </div>
                       </div>
 
@@ -880,7 +882,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ taskId, apiClient }) => 
                         )}
                       </div>
 
-                      {item.result.error_message && (
+                      {item.result?.error_message && (
                         <div
                           data-testid={`run-error-msg-${item.run.id}`}
                           style={{
@@ -979,7 +981,9 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ taskId, apiClient }) => 
                   {selectedAttempt && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <StatusBadge status={selectedAttempt.run.status} size="sm" />
-                      <StatusBadge status={selectedAttempt.result.outcome} size="sm" />
+                      {selectedAttempt.result?.outcome && (
+                        <StatusBadge status={selectedAttempt.result.outcome} size="sm" />
+                      )}
                     </div>
                   )}
                 </div>
@@ -1082,6 +1086,27 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ taskId, apiClient }) => 
                       }}
                     />
                     Live Logs (SSE)
+                  </button>
+
+                  <button
+                    type="button"
+                    data-testid="tab-diff"
+                    onClick={() => setActiveTab('diff')}
+                    style={{
+                      padding: '6px 14px',
+                      borderRadius: '6px',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      border: 'none',
+                      backgroundColor: activeTab === 'diff' ? '#2563eb' : 'transparent',
+                      color: activeTab === 'diff' ? '#ffffff' : '#64748b',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                    }}
+                  >
+                    <span>Diff & Thay Đổi</span>
                   </button>
                 </div>
 
@@ -1460,6 +1485,16 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ taskId, apiClient }) => 
                       apiClient={client}
                       initialEvents={selectedRunDetail?.events}
                     />
+                  </div>
+                )}
+
+                {/* Tab 5: Diff Viewer */}
+                {activeTab === 'diff' && (
+                  <div
+                    data-testid="run-diff-container"
+                    style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}
+                  >
+                    <DiffViewer taskId={taskId} apiClient={client} />
                   </div>
                 )}
               </div>

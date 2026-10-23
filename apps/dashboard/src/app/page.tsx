@@ -212,6 +212,50 @@ export default function HomePage() {
             Quản Lý Phát Hành →
           </a>
         </div>
+
+        <div
+          data-testid="card-diff"
+          style={{
+            backgroundColor: '#ffffff',
+            border: '1px solid #e2e8f0',
+            borderRadius: '10px',
+            padding: '20px',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+          }}
+        >
+          <div>
+            <div
+              style={{ fontSize: '18px', fontWeight: 600, color: '#0f172a', marginBottom: '8px' }}
+            >
+              🔍 Diff Viewer
+            </div>
+            <p
+              style={{ fontSize: '13px', color: '#64748b', margin: '0 0 16px 0', lineHeight: 1.4 }}
+            >
+              So sánh mã nguồn thay đổi theo định dạng unified diff, tô màu trực quan dòng thêm/xóa
+              và phát hiện file lạ ngoài scope (Quality Gate QLT-003).
+            </p>
+          </div>
+          <a
+            href="/diff"
+            style={{
+              display: 'inline-block',
+              textAlign: 'center',
+              backgroundColor: '#0284c7',
+              color: '#ffffff',
+              padding: '8px 16px',
+              borderRadius: '6px',
+              textDecoration: 'none',
+              fontSize: '13px',
+              fontWeight: 500,
+            }}
+          >
+            Xem Diff Thay Đổi →
+          </a>
+        </div>
       </div>
     </div>
   );
