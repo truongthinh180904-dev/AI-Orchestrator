@@ -3,6 +3,7 @@
 import React from 'react';
 import { ApiClient } from '../lib/api.js';
 import { ConnectionStatus } from './ConnectionStatus.js';
+import { NotificationBell } from './NotificationCenter.js';
 
 export interface HeaderProps {
   apiClient?: ApiClient;
@@ -95,6 +96,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <NotificationBell />
           <ConnectionStatus apiClient={apiClient} />
         </div>
       </div>

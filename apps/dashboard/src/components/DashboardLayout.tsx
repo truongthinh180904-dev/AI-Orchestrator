@@ -5,6 +5,7 @@ import { ApiClient } from '../lib/api.js';
 import { Header } from './Header.js';
 import { Navigation } from './Navigation.js';
 import { Footer } from './Footer.js';
+import { NotificationToastContainer } from './NotificationCenter.js';
 
 export interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -54,6 +55,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
       </main>
 
       <Footer />
+      <NotificationToastContainer />
     </div>
   );
 };

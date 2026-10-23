@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ApiClient } from '../lib/api.js';
-import { AppError } from '@ai-orchestrator/shared';
+import { ApiClient, type StreamConnectionState } from '../lib/api.js';
+import { AppError, type EventRecord } from '@ai-orchestrator/shared';
 
 describe('ApiClient', () => {
   let mockFetch: ReturnType<typeof vi.fn>;
@@ -289,5 +289,84 @@ describe('ApiClient', () => {
 
     const health = await client.checkHealth();
     expect(health.status).toBe('ok');
+  });
+
+  it('getRunStreamUrl returns formatted SSE endpoint with options', () => {
+    const url1 = client.getRunStreamUrl('run-123');
+    expect(url1).toBe('http://localhost:3000/runs/run-123/stream');
+
+    const url2 = client.getRunStreamUrl('run-123', { afterSeq: 10, live: true });
+    expect(url2).toBe('http://localhost:3000/runs/run-123/stream?after_seq=10&live=true');
+  });
+
+  it('subscribeToRunStream connects via custom EventSourceClass and receives events', async () => {
+    const eventsReceived: EventRecord[] = [];
+    const stateHistory: StreamConnectionState[] = [];
+    let doneResult: { runId: string; status: string } | null = null;
+
+    class MockEventSource {
+      url: string;
+      onopen: (() => void) | null = null;
+      onmessage: ((evt: MessageEvent) => void) | null = null;
+      onerror: ((evt: Event) => void) | null = null;
+      listeners: Record<string, ((evt: MessageEvent) => void)[]> = {};
+
+      constructor(url: string) {
+        this.url = url;
+        setTimeout(() => {
+          this.onopen?.();
+          this.emit('stdout', {
+            data: JSON.stringify({
+              id: 1,
+              run_id: 'run-123',
+              seq: 1,
+              type: 'stdout',
+              payload: 'Hello test',
+              ts: '2026-10-23T00:00:00Z',
+            }),
+          } as MessageEvent);
+          this.emit('done', {
+            data: JSON.stringify({ runId: 'run-123', status: 'SUCCESS' }),
+          } as MessageEvent);
+        }, 10);
+      }
+
+      addEventListener(type: string, cb: (evt: MessageEvent) => void) {
+        this.listeners[type] = this.listeners[type] ?? [];
+        this.listeners[type]!.push(cb);
+      }
+
+      emit(type: string, evt: MessageEvent) {
+        for (const cb of this.listeners[type] ?? []) {
+          cb(evt);
+        }
+      }
+
+      close = vi.fn();
+    }
+
+    const unsubscribe = client.subscribeToRunStream(
+      'run-123',
+      {
+        onEvent: (e) => eventsReceived.push(e),
+        onStateChange: (s) => stateHistory.push(s),
+        onDone: (d) => {
+          doneResult = d;
+        },
+      },
+      {
+        EventSourceClass: MockEventSource as unknown as typeof EventSource,
+      },
+    );
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect(eventsReceived).toHaveLength(1);
+    expect(eventsReceived[0]?.type).toBe('stdout');
+    expect(eventsReceived[0]?.payload).toBe('Hello test');
+    expect(doneResult).toEqual({ runId: 'run-123', status: 'SUCCESS' });
+    expect(stateHistory).toContain('connected');
+    expect(stateHistory).toContain('completed');
+
+    unsubscribe();
   });
 });

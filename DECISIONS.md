@@ -837,3 +837,13 @@
 - Xử lý đầy đủ 3 trạng thái giao diện: loading indicator, error banner kèm nút "Thử lại", và empty timeline state khi task chưa có lần chạy nào (0 attempts).
 - Tích hợp route Next.js App Router dynamic `/tasks/[id]` qua `apps/dashboard/src/app/tasks/[id]/page.tsx` hỗ trợ cả Promise params và object params.
 - Không thêm dependency bên ngoài mới; tái sử dụng React 19, Next.js 15 và `@ai-orchestrator/shared`.
+
+## UI-004: Live logs (SSE) + thông báo — Cập nhật realtime
+- Mở rộng `ApiClient` thêm `getRunStreamUrl(runId, options)` và `subscribeToRunStream(runId, handlers, options)` hỗ trợ `EventSource` lẫn fallback streaming `fetch` (`ReadableStream`).
+- Xây dựng component `LiveLogViewer` hiển thị log realtime dạng console, auto-scroll có nút bật/tắt (`btn-toggle-autoscroll`), tìm kiếm log, lọc loại sự kiện, xóa màn hình, tải log file và kết nối lại.
+- Giới hạn kích thước bộ đệm log (`maxBufferSize`, mặc định 5000 dòng), tự động cắt tỉa dòng cũ để tối ưu bộ nhớ.
+- Xây dựng hệ thống thông báo `NotificationStore` và hook `useNotifications` quản lý thông báo, trạng thái chưa đọc, tích hợp Web Notification API an toàn với SSR/Node.
+- Ánh xạ tự động sự kiện SSE (`process_start`, `checkpoint`, `process_exit`, `parse_error`, `process_timeout`, `process_stopped`) thành thông báo phân cấp (`info`, `success`, `warning`, `error`).
+- Xây dựng `NotificationBell` (dropdown menu xem danh sách/chưa đọc) và `NotificationToastContainer` (toast nổi góc màn hình) tích hợp vào Header và DashboardLayout.
+- Bổ sung tab `Live Logs (SSE)` (`tab-live`) vào `TaskDetail` cho phép theo dõi trực tiếp tiến trình worker đang chạy.
+- Không thêm dependency bên ngoài mới; tuân thủ TypeScript strict và kiến trúc monorepo.

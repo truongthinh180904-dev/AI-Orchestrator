@@ -12,13 +12,14 @@ import {
 } from '@ai-orchestrator/shared';
 import { ApiClient, api as defaultApi } from '../lib/api.js';
 import { StatusBadge } from './StatusBadge.js';
+import { LiveLogViewer } from './LiveLogViewer.js';
 
 export interface TaskDetailProps {
   taskId: string;
   apiClient?: ApiClient;
 }
 
-export type InspectorTab = 'checkpoints' | 'reports' | 'events';
+export type InspectorTab = 'checkpoints' | 'reports' | 'events' | 'live';
 
 export const TaskDetail: React.FC<TaskDetailProps> = ({ taskId, apiClient }) => {
   const client = apiClient ?? defaultApi;
@@ -1052,6 +1053,36 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ taskId, apiClient }) => 
                     {selectedRunDetail?.events?.length ?? selectedAttempt?.result?.event_count ?? 0}
                     )
                   </button>
+
+                  <button
+                    type="button"
+                    data-testid="tab-live"
+                    onClick={() => setActiveTab('live')}
+                    style={{
+                      padding: '6px 14px',
+                      borderRadius: '6px',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      border: 'none',
+                      backgroundColor: activeTab === 'live' ? '#dc2626' : 'transparent',
+                      color: activeTab === 'live' ? '#ffffff' : '#64748b',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: '8px',
+                        height: '8px',
+                        borderRadius: '50%',
+                        backgroundColor: activeTab === 'live' ? '#ffffff' : '#ef4444',
+                        display: 'inline-block',
+                      }}
+                    />
+                    Live Logs (SSE)
+                  </button>
                 </div>
 
                 {/* Loading Run Detail Spinner */}
@@ -1414,6 +1445,21 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ taskId, apiClient }) => 
                         </div>
                       );
                     })()}
+                  </div>
+                )}
+
+                {/* Tab 4: Live Logs (SSE) */}
+                {activeTab === 'live' && selectedRunId && (
+                  <div
+                    data-testid="run-live-logs-container"
+                    style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}
+                  >
+                    <LiveLogViewer
+                      runId={selectedRunId}
+                      taskId={taskId}
+                      apiClient={client}
+                      initialEvents={selectedRunDetail?.events}
+                    />
                   </div>
                 )}
               </div>

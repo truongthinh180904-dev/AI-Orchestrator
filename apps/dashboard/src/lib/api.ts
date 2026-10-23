@@ -13,7 +13,27 @@ import {
   type CheckpointFilter,
   type Report,
   type ReportFilter,
+  type EventRecord,
 } from '@ai-orchestrator/shared';
+
+export type StreamConnectionState =
+  'connecting' | 'connected' | 'disconnected' | 'completed' | 'error';
+
+export interface StreamHandlers {
+  onEvent?: (event: EventRecord) => void;
+  onError?: (error: Error) => void;
+  onDone?: (data: { runId: string; status: string }) => void;
+  onStateChange?: (state: StreamConnectionState) => void;
+  onHeartbeat?: () => void;
+}
+
+export interface StreamOptions {
+  afterSeq?: number;
+  live?: boolean;
+  EventSourceClass?: typeof EventSource;
+  reconnect?: boolean;
+  reconnectIntervalMs?: number;
+}
 
 export interface ApiClientOptions {
   baseUrl?: string;
@@ -241,6 +261,251 @@ export class ApiClient {
     return this.request<{ status: string; timestamp?: string }>('/api/health', {
       method: 'GET',
     });
+  }
+
+  getRunStreamUrl(runId: string, options?: { afterSeq?: number; live?: boolean }): string {
+    const query = new URLSearchParams();
+    if (options?.afterSeq !== undefined) query.set('after_seq', String(options.afterSeq));
+    if (options?.live !== undefined) query.set('live', String(options.live));
+    const qs = query.toString();
+    return `${this.baseUrl}/runs/${encodeURIComponent(runId)}/stream${qs ? `?${qs}` : ''}`;
+  }
+
+  subscribeToRunStream(
+    runId: string,
+    handlers: StreamHandlers,
+    options: StreamOptions = {},
+  ): () => void {
+    let closed = false;
+    let currentAfterSeq = options.afterSeq;
+    const reconnectEnabled = options.reconnect ?? false;
+    const reconnectIntervalMs = options.reconnectIntervalMs ?? 2000;
+    let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+    let abortController: AbortController | null = null;
+    let activeEventSource: EventSource | null = null;
+
+    const cleanupActive = () => {
+      if (abortController) {
+        abortController.abort();
+        abortController = null;
+      }
+      if (activeEventSource) {
+        activeEventSource.close();
+        activeEventSource = null;
+      }
+    };
+
+    const handleEvent = (event: EventRecord) => {
+      if (closed) return;
+      if (event.seq > (currentAfterSeq ?? 0)) {
+        currentAfterSeq = event.seq;
+      }
+      handlers.onEvent?.(event);
+    };
+
+    const handleDone = (data: { runId: string; status: string }) => {
+      if (closed) return;
+      handlers.onStateChange?.('completed');
+      handlers.onDone?.(data);
+      closed = true;
+      cleanupActive();
+    };
+
+    const connect = () => {
+      if (closed) return;
+      handlers.onStateChange?.('connecting');
+
+      const ESClass =
+        options.EventSourceClass ??
+        (typeof globalThis !== 'undefined' ? globalThis.EventSource : undefined);
+
+      if (ESClass) {
+        const url = this.getRunStreamUrl(runId, {
+          afterSeq: currentAfterSeq,
+          live: options.live,
+        });
+
+        try {
+          const es = new ESClass(url);
+          activeEventSource = es;
+
+          es.onopen = () => {
+            if (closed) return;
+            handlers.onStateChange?.('connected');
+          };
+
+          const COMMON_EVENT_TYPES = [
+            'stdout',
+            'stderr',
+            'process_start',
+            'process_exit',
+            'checkpoint',
+            'agent_output',
+            'result',
+            'parse_error',
+            'message',
+          ];
+
+          const parseAndDispatch = (dataStr: string) => {
+            try {
+              const parsed = JSON.parse(dataStr) as EventRecord;
+              handleEvent(parsed);
+            } catch {
+              // ignore invalid JSON in event data
+            }
+          };
+
+          es.onmessage = (evt) => {
+            if (closed) return;
+            parseAndDispatch(evt.data);
+          };
+
+          for (const type of COMMON_EVENT_TYPES) {
+            es.addEventListener(type, (evt) => {
+              if (closed) return;
+              parseAndDispatch((evt as MessageEvent).data);
+            });
+          }
+
+          es.addEventListener('done', (evt) => {
+            if (closed) return;
+            try {
+              const parsed = JSON.parse((evt as MessageEvent).data) as {
+                runId: string;
+                status: string;
+              };
+              handleDone(parsed);
+            } catch {
+              handleDone({ runId, status: 'DONE' });
+            }
+          });
+
+          es.onerror = () => {
+            if (closed) return;
+            handlers.onStateChange?.('disconnected');
+            if (!reconnectEnabled) {
+              handlers.onError?.(new Error(`EventSource connection failed for run ${runId}`));
+            }
+          };
+        } catch (err) {
+          if (closed) return;
+          const error = err instanceof Error ? err : new Error(String(err));
+          handlers.onStateChange?.('error');
+          handlers.onError?.(error);
+        }
+      } else {
+        // Fallback to fetch streaming with ReadableStream / line parsing
+        abortController = new AbortController();
+        const url = this.getRunStreamUrl(runId, {
+          afterSeq: currentAfterSeq,
+          live: options.live,
+        });
+
+        const startFetchStream = async () => {
+          try {
+            const res = await this.fetchFn(url, {
+              headers: {
+                Accept: 'text/event-stream',
+                'Cache-Control': 'no-cache',
+                ...(currentAfterSeq !== undefined
+                  ? { 'last-event-id': String(currentAfterSeq) }
+                  : {}),
+              },
+              signal: abortController?.signal,
+            });
+
+            if (!res.ok) {
+              throw new Error(`SSE stream request failed with status ${res.status}`);
+            }
+
+            handlers.onStateChange?.('connected');
+
+            if (!res.body) {
+              throw new Error('Response body is null, cannot stream');
+            }
+
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (!closed) {
+              const { done, value } = await reader.read();
+              if (done) break;
+
+              buffer += decoder.decode(value, { stream: true });
+              const blocks = buffer.split('\n\n');
+              buffer = blocks.pop() ?? '';
+
+              for (const block of blocks) {
+                if (closed) break;
+                if (!block.trim()) continue;
+
+                let eventType = 'message';
+                let dataStr = '';
+
+                for (const line of block.split('\n')) {
+                  if (line.startsWith(':')) {
+                    handlers.onHeartbeat?.();
+                  } else if (line.startsWith('event:')) {
+                    eventType = line.slice(6).trim();
+                  } else if (line.startsWith('data:')) {
+                    dataStr += (dataStr ? '\n' : '') + line.slice(5).trim();
+                  }
+                }
+
+                if (eventType === 'done') {
+                  try {
+                    const parsed = JSON.parse(dataStr) as { runId: string; status: string };
+                    handleDone(parsed);
+                  } catch {
+                    handleDone({ runId, status: 'DONE' });
+                  }
+                  return;
+                }
+
+                if (dataStr) {
+                  try {
+                    const event = JSON.parse(dataStr) as EventRecord;
+                    handleEvent(event);
+                  } catch {
+                    // skip parse error
+                  }
+                }
+              }
+            }
+
+            if (!closed) {
+              handlers.onStateChange?.('disconnected');
+              if (reconnectEnabled) {
+                reconnectTimeout = setTimeout(connect, reconnectIntervalMs);
+              }
+            }
+          } catch (err) {
+            if (closed) return;
+            handlers.onStateChange?.('error');
+            const error = err instanceof Error ? err : new Error(String(err));
+            handlers.onError?.(error);
+
+            if (reconnectEnabled) {
+              reconnectTimeout = setTimeout(connect, reconnectIntervalMs);
+            }
+          }
+        };
+
+        void startFetchStream();
+      }
+    };
+
+    connect();
+
+    return () => {
+      closed = true;
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+      }
+      cleanupActive();
+      handlers.onStateChange?.('disconnected');
+    };
   }
 }
 

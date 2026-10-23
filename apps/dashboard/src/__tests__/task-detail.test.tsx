@@ -521,6 +521,34 @@ describe('TaskDetail & Timeline Component (UI-003)', () => {
     });
   });
 
+  it('switches to Live Logs (SSE) tab and renders LiveLogViewer container', async () => {
+    const mockApi = {
+      getTask: vi.fn().mockResolvedValue(mockTask),
+      getTaskHistory: vi.fn().mockResolvedValue(mockHistory),
+      getRunDetail: vi.fn().mockResolvedValue(mockRunDetail2),
+      subscribeToRunStream: vi.fn().mockReturnValue(() => {}),
+    } as unknown as ApiClient;
+
+    render(<TaskDetail taskId="TSK-003" apiClient={mockApi} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('tab-live')).toBeDefined();
+    });
+
+    const tabLive = screen.getByTestId('tab-live');
+    fireEvent.click(tabLive);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('run-live-logs-container')).toBeDefined();
+      expect(screen.getByTestId('live-log-viewer')).toBeDefined();
+      expect(mockApi.subscribeToRunStream).toHaveBeenCalledWith(
+        'run-attempt-2',
+        expect.any(Object),
+        expect.any(Object),
+      );
+    });
+  });
+
   it('TaskDetailPage App Router page wrapper renders TaskDetail correctly', async () => {
     const mockApi = {
       getTask: vi.fn().mockResolvedValue(mockTask),
