@@ -12,6 +12,8 @@ export default tseslint.config(
       'reports/**',
       'fixtures/**',
       'pnpm-lock.yaml',
+      '**/.next/**',
+      '**/next-env.d.ts',
     ],
   },
   js.configs.recommended,

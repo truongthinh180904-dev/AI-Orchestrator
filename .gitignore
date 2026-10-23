@@ -42,3 +42,4 @@ STOP
 dist/
 *.tsbuildinfo
 coverage/
+next-env.d.ts

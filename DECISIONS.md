@@ -807,4 +807,14 @@
 - Phân loại lỗi `gh` chuẩn hóa: retry lỗi mạng `GH_NETWORK_ERROR` với backoff, fail-fast đối với lỗi xác thực `GH_AUTH_FAILED` (401) hoặc thiếu CLI `GH_NOT_FOUND` (500).
 - Cung cấp REST API: `POST /features/:id/pr` (201), `GET /features/:id/pr` (200), `GET /features/:id/release-report` (200).
 
+## UI-001: Layout + navigation (Next.js Dashboard)
+- Cấu trúc layout thống nhất `DashboardLayout`: bọc `Header`, `Navigation`, `main` container và `Footer`.
+- Navigation gồm 4 phân hệ chuẩn ROADMAP: Tác vụ (`/tasks`, `/`), Nhập (`/import`), Điều khiển (`/controls`), Releases (`/releases`).
+- Tích hợp `ConnectionStatus` giám sát API Orchestrator: tự động kiểm tra `GET /api/health`, hiển thị trực quan badge trạng thái trực tuyến / mất kết nối và nút làm mới.
+- Hỗ trợ đánh dấu active route với `aria-current="page"` và `data-active` qua tiện ích chuẩn hóa `isRouteActive`.
+- Tạo các trang Next.js App Router tương ứng (`/`, `/tasks`, `/import`, `/controls`, `/releases`) tích hợp vào `RootLayout`.
+- Bổ sung scripts chạy local trong `apps/dashboard/package.json`: `"dev": "next dev -p 3001"`, `"start": "next start -p 3001"`.
+- Cấu hình `next.config.mjs` với webpack fallback cho browser client, bỏ qua các module node built-ins từ `@ai-orchestrator/shared`.
+- Không thêm dependency bên ngoài mới; tái sử dụng React 19, Next.js 15 và `@testing-library/react`.
+
 
