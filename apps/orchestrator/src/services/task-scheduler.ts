@@ -8,6 +8,9 @@ import {
   type ScheduleStepResult,
   type ResourceAcquisitionResult,
   type ScheduleEvaluationResult,
+  type RecoveryResult,
+  type RecoveryOptions,
+  type RecoveryStatus,
   isQuotaOrRateLimitError,
   RetryPolicy,
   type RetryPolicyInput,
@@ -18,6 +21,7 @@ import type { QualityGateService } from './quality-gate-service.js';
 import type { RunService } from './run-service.js';
 import type { ResourceQuotaManager } from './resource-quota-manager.js';
 import type { ExecutionScheduleManager } from './execution-schedule-manager.js';
+import { RecoveryService } from './recovery-service.js';
 
 export const DEFAULT_AGENT_LOCK_ID = 'default_agent';
 
@@ -55,6 +59,8 @@ export interface TaskSchedulerOptions {
   autoVerify?: boolean;
   retryPolicy?: RetryPolicy | RetryPolicyInput;
   autoRetry?: boolean;
+  recoveryService?: RecoveryService;
+  autoRecoverOnStartup?: boolean;
 }
 
 export class TaskScheduler {
@@ -72,6 +78,7 @@ export class TaskScheduler {
   private readonly autoVerifyDefault: boolean;
   private readonly retryPolicy: RetryPolicy;
   private readonly autoRetryDefault: boolean;
+  private readonly recoveryService: RecoveryService;
 
   private _isRunning = false;
   private _isPaused = false;
@@ -97,6 +104,38 @@ export class TaskScheduler {
         ? options.retryPolicy
         : new RetryPolicy(options.retryPolicy);
     this.autoRetryDefault = options.autoRetry ?? true;
+    this.recoveryService =
+      options.recoveryService ??
+      new RecoveryService({
+        db: this.db,
+        taskRepo: this.taskRepo,
+        runRepo: this.runRepo,
+        lockRepo: this.lockRepo,
+        checkpointRepo: this.checkpointRepo,
+        stateService: this.stateService,
+        retryPolicy: this.retryPolicy,
+        resourceQuotaManager: this.resourceQuotaManager,
+      });
+
+    if (options.autoRecoverOnStartup) {
+      try {
+        this.recoveryService.recover({ trigger: 'scheduler_startup' });
+      } catch (err) {
+        logger.warn('Failed auto-recovery during TaskScheduler initialization', { error: err });
+      }
+    }
+  }
+
+  get recovery(): RecoveryService {
+    return this.recoveryService;
+  }
+
+  recover(options?: RecoveryOptions): RecoveryResult {
+    return this.recoveryService.recover(options);
+  }
+
+  getRecoveryStatus(): RecoveryStatus {
+    return this.recoveryService.checkInterrupted();
   }
 
   get retry(): RetryPolicy {

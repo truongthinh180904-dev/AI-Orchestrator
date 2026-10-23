@@ -18,6 +18,7 @@ import { RepairLoopService } from './services/repair-loop-service.js';
 import { QualityGateService } from './services/quality-gate-service.js';
 import { ResourceQuotaManager } from './services/resource-quota-manager.js';
 import { ExecutionScheduleManager } from './services/execution-schedule-manager.js';
+import { RecoveryService } from './services/recovery-service.js';
 import { createExecutionManager } from './adapters/execution-manager.js';
 import { healthRoutes } from './routes/health.js';
 import { taskRoutes } from './routes/tasks.js';
@@ -223,6 +224,28 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       db,
     });
 
+  const recoveryService =
+    options.recoveryService ??
+    new RecoveryService({
+      db,
+      resourceQuotaManager,
+    });
+
+  if (options.autoRecover === true) {
+    try {
+      const recoveryResult = recoveryService.recover({ trigger: 'server_startup' });
+      if (recoveryResult.recoveredTasks.length > 0 || recoveryResult.cleanedRuns.length > 0) {
+        server.log.info(
+          `Startup recovery executed: recovered ${recoveryResult.recoveredTasks.length} task(s), cleaned ${recoveryResult.cleanedRuns.length} run(s).`,
+        );
+      }
+    } catch (err) {
+      server.log.warn(
+        `Startup recovery encountered an error: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
   const taskScheduler =
     options.taskScheduler ??
     new TaskScheduler({
@@ -230,6 +253,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       runService,
       resourceQuotaManager,
       executionScheduleManager,
+      recoveryService,
     });
 
   const plannerService =

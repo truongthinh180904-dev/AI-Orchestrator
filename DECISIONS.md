@@ -906,3 +906,14 @@
 - Tích hợp `ExecutionScheduleManager` vào `TaskScheduler`: `acquireNextTask`, `step`, và `runUntilEmpty` tuân thủ lịch nghiêm ngặt, từ chối cấp slot khi ngoài khung giờ và tự động dừng loop.
 - Cung cấp các REST API endpoint: `GET/PATCH/PUT /system/schedule`, `POST /system/schedule/evaluate`, `GET /system/schedule/events`.
 - Không thêm dependency bên ngoài mới; tuân thủ TypeScript `strict: true` và nguyên tắc MVP.
+
+
+## OPS-003: Phục hồi sau restart (task RUNNING → kiểm tra → requeue/fail)
+- Triển khai `RecoveryService` (`apps/orchestrator/src/services/recovery-service.ts`) phát hiện task/run treo sau restart/crash và phục hồi an toàn trong transaction SQLite.
+- Cơ chế requeue/fail theo số lần thử: task `RUNNING`/`VERIFYING` có `attempts < max_attempts` được requeue sang `READY`; khi `attempts >= max_attempts` chuyển sang `FAILED` dứt điểm, chống crash loop vô hạn.
+- Bảo toàn lịch sử ("Không mất lịch sử"): run bị gián đoạn được lưu lại đầy đủ với status `ERROR`, bổ sung event `run_interrupted` và checkpoint `recovery_interrupted`; truy vết 100% qua `TaskHistoryService`.
+- Ngăn ngừa chạy trùng ("Không chạy trùng"): giải phóng stale `agent_locks`, dọn slot tài nguyên, đảm bảo scheduler chỉ acquire đơn tiến trình tiếp theo sau phục hồi.
+- Tự động phục hồi khi khởi động: `main.ts` truyền `autoRecover: true` để dọn dẹp phiên trước khi Orchestrator server khởi động.
+- Migration `015_restart_recovery.sql` và `RecoveryAuditRepository` (`@ai-orchestrator/db`) lưu trữ nhật ký kiểm toán phục hồi.
+- Cung cấp các REST API endpoint: `POST /scheduler/recover`, `GET /scheduler/recovery/status`, `POST /system/recovery`, `GET /system/recovery`.
+- Không thêm dependency bên ngoài mới; tuân thủ TypeScript strict và kiến trúc monorepo.

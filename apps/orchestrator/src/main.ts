@@ -16,6 +16,7 @@ export async function bootstrap(): Promise<void> {
     db,
     logger: env.LOG_LEVEL !== 'info' ? { level: env.LOG_LEVEL } : true,
     config: env,
+    autoRecover: true,
   });
 
   const address = await server.listen({

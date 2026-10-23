@@ -28,6 +28,7 @@ import type { FeatureService } from './services/feature-service.js';
 import type { FeatureReleaseService } from './services/feature-release-service.js';
 import type { ResourceQuotaManager } from './services/resource-quota-manager.js';
 import type { ExecutionScheduleManager } from './services/execution-schedule-manager.js';
+import type { RecoveryService } from './services/recovery-service.js';
 
 export const ImportRequestSchema = z.object({
   filePath: z.string().optional(),
@@ -255,4 +256,6 @@ export interface BuildServerOptions {
   featureReleaseService?: FeatureReleaseService;
   resourceQuotaManager?: ResourceQuotaManager;
   executionScheduleManager?: ExecutionScheduleManager;
+  recoveryService?: RecoveryService;
+  autoRecover?: boolean;
 }

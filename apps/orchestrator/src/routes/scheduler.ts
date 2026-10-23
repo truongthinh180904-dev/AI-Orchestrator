@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import {
   ScheduleNextOptionsSchema,
   type ScheduleNextOptions,
+  RecoveryOptionsSchema,
 } from '@ai-orchestrator/shared';
 import type { TaskScheduler } from '../services/task-scheduler.js';
 
@@ -81,4 +82,25 @@ export const schedulerRoutes: FastifyPluginAsync<SchedulerRoutesOptions> = async
 
   server.post('/scheduler/release-lock', handleReleaseLock);
   server.post('/api/scheduler/release-lock', handleReleaseLock);
+
+  // POST /scheduler/recover & POST /api/scheduler/recover & POST /system/recovery
+  const handleRecover = async (request: { body?: unknown }) => {
+    const parsed = RecoveryOptionsSchema.safeParse(request.body ?? {});
+    const opts = parsed.success ? parsed.data : undefined;
+    const result = scheduler.recover(opts);
+    return { data: result };
+  };
+
+  server.post('/scheduler/recover', handleRecover);
+  server.post('/api/scheduler/recover', handleRecover);
+  server.post('/system/recovery', handleRecover);
+
+  // GET /scheduler/recovery/status & GET /api/scheduler/recovery/status & GET /system/recovery
+  const handleRecoveryStatus = async () => {
+    return { data: scheduler.getRecoveryStatus() };
+  };
+
+  server.get('/scheduler/recovery/status', handleRecoveryStatus);
+  server.get('/api/scheduler/recovery/status', handleRecoveryStatus);
+  server.get('/system/recovery', handleRecoveryStatus);
 };
