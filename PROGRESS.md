@@ -47,7 +47,7 @@ Trạng thái: `TODO` | `IN_PROGRESS` | `DONE` | `FAILED` | `BLOCKED`
 | REL-005 | DONE | 1 | 99215a2 | Hoàn thành lúc 2026-10-23 14:05 +07:00 |
 | REL-006 | DONE | 1 | c93b757 | Hoàn thành lúc 2026-10-23 14:27 +07:00 |
 | UI-001 | DONE | 1 | 9680c21 | Hoàn thành lúc 2026-10-23 14:52 +07:00 |
-| UI-002 | TODO | 0 | | |
+| UI-002 | DONE | 1 | 401abf0 | Hoàn thành lúc 2026-10-23 15:22 +07:00 |
 | UI-003 | TODO | 0 | | |
 | UI-004 | TODO | 0 | | |
 | UI-005 | TODO | 0 | | |
