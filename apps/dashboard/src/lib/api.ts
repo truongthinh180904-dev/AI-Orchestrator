@@ -17,6 +17,11 @@ import {
   type TaskDiffData,
   type ScopeDiffResult,
   type CompareScopeInput,
+  type QualityGateResult,
+  type QualityGatePolicyInput,
+  type QualityCommandRecord,
+  type ReviewFindingRecord,
+  type SecurityCheckResult,
 } from '@ai-orchestrator/shared';
 
 export type StreamConnectionState =
@@ -247,6 +252,120 @@ export class ApiClient {
       },
       body: JSON.stringify(input),
     });
+  }
+
+  async getTaskQualityGateLatest(taskId: string): Promise<QualityGateResult> {
+    return this.request<QualityGateResult>(
+      `/api/quality/gate/tasks/${encodeURIComponent(taskId)}/latest`,
+      { method: 'GET' },
+    );
+  }
+
+  async getTaskQualityGateHistory(taskId: string): Promise<QualityGateResult[]> {
+    return this.request<QualityGateResult[]>(
+      `/api/quality/gate/tasks/${encodeURIComponent(taskId)}/history`,
+      { method: 'GET' },
+    );
+  }
+
+  async getQualityGateById(id: string): Promise<QualityGateResult> {
+    return this.request<QualityGateResult>(`/api/quality/gate/${encodeURIComponent(id)}`, {
+      method: 'GET',
+    });
+  }
+
+  async evaluateQualityGate(data: {
+    taskId?: string;
+    runId?: string;
+    repoPath?: string;
+    policy?: QualityGatePolicyInput;
+    saveEvaluation?: boolean;
+  }): Promise<QualityGateResult> {
+    return this.request<QualityGateResult>('/api/quality/gate/evaluate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    });
+  }
+
+  async verifyTask(
+    taskId: string,
+    options?: {
+      runId?: string;
+      repoPath?: string;
+      policy?: QualityGatePolicyInput;
+      customReason?: string;
+      autoTransition?: boolean;
+    },
+  ): Promise<{
+    result: QualityGateResult;
+    task: TaskWithDependencies;
+  }> {
+    return this.request<{
+      result: QualityGateResult;
+      task: TaskWithDependencies;
+    }>(`/api/tasks/${encodeURIComponent(taskId)}/verify`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(options ?? {}),
+    });
+  }
+
+  async getTaskReviewFindings(taskId: string): Promise<ReviewFindingRecord[]> {
+    return this.request<ReviewFindingRecord[]>(
+      `/api/tasks/${encodeURIComponent(taskId)}/review-findings`,
+      { method: 'GET' },
+    );
+  }
+
+  async getRunReviewFindings(runId: string): Promise<ReviewFindingRecord[]> {
+    return this.request<ReviewFindingRecord[]>(
+      `/api/runs/${encodeURIComponent(runId)}/review-findings`,
+      { method: 'GET' },
+    );
+  }
+
+  async getTaskQualityRecords(
+    taskId: string,
+    query?: { stage?: string; status?: string; limit?: number; offset?: number },
+  ): Promise<QualityCommandRecord[]> {
+    const searchParams = new URLSearchParams();
+    if (query?.stage) searchParams.set('stage', query.stage);
+    if (query?.status) searchParams.set('status', query.status);
+    if (query?.limit !== undefined) searchParams.set('limit', String(query.limit));
+    if (query?.offset !== undefined) searchParams.set('offset', String(query.offset));
+    const qs = searchParams.toString();
+    return this.request<QualityCommandRecord[]>(
+      `/api/tasks/${encodeURIComponent(taskId)}/quality-records${qs ? `?${qs}` : ''}`,
+      { method: 'GET' },
+    );
+  }
+
+  async getRunQualityRecords(
+    runId: string,
+    query?: { stage?: string; status?: string; limit?: number; offset?: number },
+  ): Promise<QualityCommandRecord[]> {
+    const searchParams = new URLSearchParams();
+    if (query?.stage) searchParams.set('stage', query.stage);
+    if (query?.status) searchParams.set('status', query.status);
+    if (query?.limit !== undefined) searchParams.set('limit', String(query.limit));
+    if (query?.offset !== undefined) searchParams.set('offset', String(query.offset));
+    const qs = searchParams.toString();
+    return this.request<QualityCommandRecord[]>(
+      `/api/runs/${encodeURIComponent(runId)}/quality-records${qs ? `?${qs}` : ''}`,
+      { method: 'GET' },
+    );
+  }
+
+  async getTaskSecurityChecks(taskId: string): Promise<SecurityCheckResult[]> {
+    return this.request<SecurityCheckResult[]>(
+      `/api/tasks/${encodeURIComponent(taskId)}/security-checks`,
+      { method: 'GET' },
+    );
   }
 
   async getTaskHistory(id: string): Promise<TaskRunHistory> {

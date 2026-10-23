@@ -17,3 +17,4 @@ export * from './components/TaskFeatureDashboard.js';
 export * from './components/TaskDetail.js';
 export * from './components/LiveLogViewer.js';
 export * from './components/DiffViewer.js';
+export * from './components/TestReportReviewFindings.js';

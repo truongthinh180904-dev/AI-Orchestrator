@@ -256,6 +256,50 @@ export default function HomePage() {
             Xem Diff Thay Đổi →
           </a>
         </div>
+
+        <div
+          data-testid="card-quality"
+          style={{
+            backgroundColor: '#ffffff',
+            border: '1px solid #e2e8f0',
+            borderRadius: '10px',
+            padding: '20px',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+          }}
+        >
+          <div>
+            <div
+              style={{ fontSize: '18px', fontWeight: 600, color: '#0f172a', marginBottom: '8px' }}
+            >
+              🧪 Kiểm Định & Bằng Chứng (Quality Gate)
+            </div>
+            <p
+              style={{ fontSize: '13px', color: '#64748b', margin: '0 0 16px 0', lineHeight: 1.4 }}
+            >
+              Xem báo cáo test lệnh chi tiết, review findings từ Reviewer Agent (QLT-004), kiểm tra
+              secret, lỗ hổng phụ thuộc và tiêu chuẩn Không PASS chỉ vì CLI báo SUCCESS (QLT-007).
+            </p>
+          </div>
+          <a
+            href="/quality"
+            style={{
+              display: 'inline-block',
+              textAlign: 'center',
+              backgroundColor: '#7c3aed',
+              color: '#ffffff',
+              padding: '8px 16px',
+              borderRadius: '6px',
+              textDecoration: 'none',
+              fontSize: '13px',
+              fontWeight: 500,
+            }}
+          >
+            Xem Bằng Chứng Kiểm Định →
+          </a>
+        </div>
       </div>
     </div>
   );

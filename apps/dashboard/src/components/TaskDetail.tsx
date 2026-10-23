@@ -14,13 +14,14 @@ import { ApiClient, api as defaultApi } from '../lib/api.js';
 import { StatusBadge } from './StatusBadge.js';
 import { LiveLogViewer } from './LiveLogViewer.js';
 import { DiffViewer } from './DiffViewer.js';
+import { TestReportReviewFindings } from './TestReportReviewFindings.js';
 
 export interface TaskDetailProps {
   taskId: string;
   apiClient?: ApiClient;
 }
 
-export type InspectorTab = 'checkpoints' | 'reports' | 'events' | 'live' | 'diff';
+export type InspectorTab = 'checkpoints' | 'reports' | 'events' | 'live' | 'diff' | 'quality';
 
 export const TaskDetail: React.FC<TaskDetailProps> = ({ taskId, apiClient }) => {
   const client = apiClient ?? defaultApi;
@@ -1108,6 +1109,27 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ taskId, apiClient }) => 
                   >
                     <span>Diff & Thay Đổi</span>
                   </button>
+
+                  <button
+                    type="button"
+                    data-testid="tab-quality"
+                    onClick={() => setActiveTab('quality')}
+                    style={{
+                      padding: '6px 14px',
+                      borderRadius: '6px',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      border: 'none',
+                      backgroundColor: activeTab === 'quality' ? '#2563eb' : 'transparent',
+                      color: activeTab === 'quality' ? '#ffffff' : '#64748b',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                    }}
+                  >
+                    <span>🧪 Kiểm Định & Bằng Chứng</span>
+                  </button>
                 </div>
 
                 {/* Loading Run Detail Spinner */}
@@ -1495,6 +1517,20 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ taskId, apiClient }) => 
                     style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}
                   >
                     <DiffViewer taskId={taskId} apiClient={client} />
+                  </div>
+                )}
+
+                {/* Tab 6: Quality Gate & Test Evidence */}
+                {activeTab === 'quality' && (
+                  <div
+                    data-testid="run-quality-container"
+                    style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}
+                  >
+                    <TestReportReviewFindings
+                      taskId={taskId}
+                      runId={selectedRunId ?? undefined}
+                      apiClient={client}
+                    />
                   </div>
                 )}
               </div>

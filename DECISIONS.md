@@ -858,3 +858,13 @@
 - Tạo route riêng `/diff` (`apps/dashboard/src/app/diff/page.tsx`) cho phép chọn hoặc nhập task ID bất kỳ, và dynamic route `/tasks/[id]/diff` (`apps/dashboard/src/app/tasks/[id]/diff/page.tsx`).
 - Không thêm dependency bên ngoài mới; tuân thủ TypeScript `strict: true` và nguyên tắc không mock dữ liệu trong đường dẫn chính của dashboard.
 
+## UI-006: Test report + review findings — Hiển thị bằng chứng
+- Bổ sung các phương thức gọi API kiểm định chất lượng trong `ApiClient`: `getTaskQualityGateLatest`, `getTaskQualityGateHistory`, `getQualityGateById`, `evaluateQualityGate`, `verifyTask`, `getTaskReviewFindings`, `getRunReviewFindings`, `getTaskQualityRecords`, `getRunQualityRecords`, `getTaskSecurityChecks`.
+- Xây dựng component `TestReportReviewFindings` hiển thị bằng chứng toàn diện: Quality Gate verdict, bảng đánh giá quy tắc (rule evaluations), báo cáo lệnh kiểm thử test/lint/typecheck kèm stdout/stderr, review findings (QLT-004), phạm vi scope (QLT-003) và bảo mật/secret scan (QLT-005).
+- Hiển thị banner cảnh báo quy trình nổi bật khi vi phạm nguyên tắc "Không PASS chỉ vì CLI báo SUCCESS" (QLT-007).
+- Hỗ trợ bộ lọc trực quan: lọc lệnh test theo stage và status (Exit 0 vs non-zero); lọc review findings theo 5 mức độ nghiêm trọng (critical, high, medium, low, info) và tìm kiếm tự do.
+- Hỗ trợ thao tác điều khiển: nút "Chạy Kiểm Định (Quality Gate)" kích hoạt `api.verifyTask`, nút làm mới, dropdown xem lịch sử kiểm định và sao chép báo cáo Markdown vào clipboard.
+- Tích hợp vào `TaskDetail` qua tab mới `Kiểm Định & Bằng Chứng` (`tab-quality`) và tạo các route Next.js App Router: `/quality` (chọn task) và `/tasks/[id]/quality` (xem trực tiếp).
+- Bổ sung thẻ điều hướng `card-quality` trên trang chủ (`/`).
+- Không thêm dependency bên ngoài mới; tuân thủ TypeScript `strict: true` và nguyên tắc tách bạch rõ ràng giữa frontend hiển thị và backend orchestrator.
+
