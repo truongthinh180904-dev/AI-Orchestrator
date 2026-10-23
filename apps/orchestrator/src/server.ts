@@ -15,6 +15,7 @@ import { ScopeDiffService } from './services/scope-diff-service.js';
 import { ReviewerService } from './services/reviewer-service.js';
 import { SecurityCheckService } from './services/security-check-service.js';
 import { RepairLoopService } from './services/repair-loop-service.js';
+import { QualityGateService } from './services/quality-gate-service.js';
 import { createExecutionManager } from './adapters/execution-manager.js';
 import { healthRoutes } from './routes/health.js';
 import { taskRoutes } from './routes/tasks.js';
@@ -51,6 +52,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
         case 'PLAN_NOT_FOUND':
         case 'QUALITY_RECORD_NOT_FOUND':
         case 'REPAIR_LOOP_NOT_FOUND':
+        case 'QUALITY_GATE_NOT_FOUND':
           statusCode = 404;
           break;
         case 'TASK_ALREADY_EXISTS':
@@ -232,6 +234,17 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       config: options.config,
     });
 
+  const qualityGateService =
+    options.qualityGateService ??
+    new QualityGateService({
+      db,
+      qualityRunner,
+      scopeDiffService,
+      reviewerService,
+      securityCheckService,
+      qualityConfigService,
+    });
+
   // Register routes
   await server.register(healthRoutes);
   await server.register(taskRoutes, { taskService });
@@ -247,6 +260,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     reviewerService,
     securityCheckService,
     repairLoopService,
+    qualityGateService,
   });
 
   return server;

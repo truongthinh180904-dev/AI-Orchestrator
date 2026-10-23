@@ -11,6 +11,7 @@ import {
   logger,
 } from '@ai-orchestrator/shared';
 import { TaskStateService } from './task-state-service.js';
+import type { QualityGateService } from './quality-gate-service.js';
 import type { RunService } from './run-service.js';
 
 export const DEFAULT_AGENT_LOCK_ID = 'default_agent';
@@ -34,6 +35,7 @@ export interface AcquireTaskResult {
 export interface TaskSchedulerOptions {
   db: Database.Database;
   runService: RunService;
+  qualityGateService?: QualityGateService;
   lockId?: string;
   autoVerify?: boolean;
   retryPolicy?: RetryPolicy | RetryPolicyInput;
@@ -48,6 +50,7 @@ export class TaskScheduler {
   private readonly checkpointRepo: CheckpointRepository;
   private readonly stateService: TaskStateService;
   private readonly runService: RunService;
+  private readonly qualityGateService?: QualityGateService;
   private readonly lockId: string;
   private readonly autoVerifyDefault: boolean;
   private readonly retryPolicy: RetryPolicy;
@@ -62,6 +65,7 @@ export class TaskScheduler {
   constructor(options: TaskSchedulerOptions) {
     this.db = options.db;
     this.runService = options.runService;
+    this.qualityGateService = options.qualityGateService;
     this.taskRepo = new TaskRepository(this.db);
     this.lockRepo = new AgentLockRepository(this.db);
     this.runRepo = new RunRepository(this.db);
@@ -275,7 +279,28 @@ export class TaskScheduler {
           runId: run.id,
         });
         const autoVerify = options?.autoVerify ?? this.autoVerifyDefault;
-        if (autoVerify) {
+        if (this.qualityGateService && autoVerify) {
+          // Rule: Không đánh dấu task nghiệp vụ DONE chỉ vì CLI báo SUCCESS. Phải qua Quality Gate thật có bằng chứng!
+          try {
+            const { result } = await this.qualityGateService.verifyAndTransitionTask(task.id, {
+              runId: run.id,
+            });
+            logger.info(`Task '${task.id}' quality gate completed: ${result.status}`, {
+              taskId: task.id,
+              passed: result.passed,
+              summary: result.summary,
+            });
+          } catch (qgError) {
+            logger.error(`Task '${task.id}' quality gate verification error`, {
+              taskId: task.id,
+              error: qgError instanceof Error ? qgError.message : String(qgError),
+            });
+            this.stateService.markFailed(task.id, {
+              reason: `Quality Gate evaluation failed: ${qgError instanceof Error ? qgError.message : String(qgError)}`,
+              runId: run.id,
+            });
+          }
+        } else if (autoVerify) {
           this.stateService.markDone(task.id, {
             reason: 'Acceptance criteria and tests passed',
             runId: run.id,

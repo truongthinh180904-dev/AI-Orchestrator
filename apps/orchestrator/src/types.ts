@@ -23,6 +23,7 @@ import type { ScopeDiffService } from './services/scope-diff-service.js';
 import type { ReviewerService } from './services/reviewer-service.js';
 import type { SecurityCheckService } from './services/security-check-service.js';
 import type { RepairLoopService } from './services/repair-loop-service.js';
+import type { QualityGateService } from './services/quality-gate-service.js';
 
 export const ImportRequestSchema = z.object({
   filePath: z.string().optional(),
@@ -245,4 +246,5 @@ export interface BuildServerOptions {
   reviewerService?: ReviewerService;
   securityCheckService?: SecurityCheckService;
   repairLoopService?: RepairLoopService;
+  qualityGateService?: QualityGateService;
 }

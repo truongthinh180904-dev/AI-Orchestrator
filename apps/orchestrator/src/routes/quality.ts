@@ -11,6 +11,7 @@ import {
   CompareScopeInputSchema,
   ReviewDiffInputSchema,
   FindingSeveritySchema,
+  QualityGatePolicySchema,
   AppError,
 } from '@ai-orchestrator/shared';
 import type { QualityConfigService } from '../services/quality-config-service.js';
@@ -19,6 +20,7 @@ import type { ScopeDiffService } from '../services/scope-diff-service.js';
 import type { ReviewerService } from '../services/reviewer-service.js';
 import type { SecurityCheckService } from '../services/security-check-service.js';
 import type { RepairLoopService } from '../services/repair-loop-service.js';
+import type { QualityGateService } from '../services/quality-gate-service.js';
 
 export interface QualityRoutesOptions {
   qualityConfigService: QualityConfigService;
@@ -27,6 +29,7 @@ export interface QualityRoutesOptions {
   reviewerService?: ReviewerService;
   securityCheckService?: SecurityCheckService;
   repairLoopService?: RepairLoopService;
+  qualityGateService?: QualityGateService;
 }
 
 const RepoParamsSchema = z.object({
@@ -686,4 +689,140 @@ export const qualityRoutes: FastifyPluginAsync<QualityRoutesOptions> = async (fa
 
   fastify.post('/tasks/:id/repair', handleTaskRepair);
   fastify.post('/api/tasks/:id/repair', handleTaskRepair);
+
+  // ==========================================
+  // Quality Gate Endpoints (QLT-007)
+  // ==========================================
+  const qualityGateService = opts.qualityGateService;
+
+  const QualityGateEvaluateBodySchema = z.object({
+    taskId: z.string().min(1, 'Task ID is required'),
+    runId: z.string().optional(),
+    repoPath: z.string().optional(),
+    policy: QualityGatePolicySchema.partial().optional(),
+    skipCommands: z.boolean().optional(),
+    skipScope: z.boolean().optional(),
+    skipReview: z.boolean().optional(),
+    skipSecurity: z.boolean().optional(),
+  });
+
+  const QualityGateParamsSchema = z.object({
+    id: z.string().min(1, 'Evaluation ID is required'),
+  });
+
+  const TaskVerifyBodySchema = z.object({
+    runId: z.string().optional(),
+    repoPath: z.string().optional(),
+    policy: QualityGatePolicySchema.partial().optional(),
+    customReason: z.string().optional(),
+    autoTransition: z.boolean().optional().default(true),
+  });
+
+  // POST /quality/gate/evaluate & /api/quality/gate/evaluate
+  const handleEvaluateQualityGate = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<void> => {
+    if (!qualityGateService) {
+      throw new AppError('SERVICE_UNAVAILABLE', 'QualityGateService is not configured');
+    }
+    const body = QualityGateEvaluateBodySchema.parse(request.body ?? {});
+    const result = await qualityGateService.runQualityGateForTask(body.taskId, {
+      runId: body.runId,
+      repoPath: body.repoPath,
+      policy: body.policy,
+      skipCommands: body.skipCommands,
+      skipScope: body.skipScope,
+      skipReview: body.skipReview,
+      skipSecurity: body.skipSecurity,
+    });
+    return reply.status(200).send({ data: result });
+  };
+
+  fastify.post('/quality/gate/evaluate', handleEvaluateQualityGate);
+  fastify.post('/api/quality/gate/evaluate', handleEvaluateQualityGate);
+
+  // GET /quality/gate/:id & /api/quality/gate/:id
+  const handleGetQualityGateById = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<void> => {
+    if (!qualityGateService) {
+      throw new AppError('SERVICE_UNAVAILABLE', 'QualityGateService is not configured');
+    }
+    const params = QualityGateParamsSchema.parse(request.params);
+    const evaluation = qualityGateService.getById(params.id);
+    if (!evaluation) {
+      throw new AppError('QUALITY_GATE_NOT_FOUND', `Quality gate evaluation '${params.id}' not found`, {
+        evaluationId: params.id,
+      });
+    }
+    return reply.status(200).send({ data: evaluation });
+  };
+
+  fastify.get('/quality/gate/:id', handleGetQualityGateById);
+  fastify.get('/api/quality/gate/:id', handleGetQualityGateById);
+
+  // GET /quality/gate/tasks/:id/latest & /api/quality/gate/tasks/:id/latest
+  const handleGetTaskLatestQualityGate = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<void> => {
+    if (!qualityGateService) {
+      throw new AppError('SERVICE_UNAVAILABLE', 'QualityGateService is not configured');
+    }
+    const params = TaskParamsSchema.parse(request.params);
+    const latest = qualityGateService.getLatestForTask(params.id);
+    if (!latest) {
+      throw new AppError(
+        'QUALITY_GATE_NOT_FOUND',
+        `No quality gate evaluation found for task '${params.id}'`,
+        { taskId: params.id },
+      );
+    }
+    return reply.status(200).send({ data: latest });
+  };
+
+  fastify.get('/quality/gate/tasks/:id/latest', handleGetTaskLatestQualityGate);
+  fastify.get('/api/quality/gate/tasks/:id/latest', handleGetTaskLatestQualityGate);
+
+  // GET /quality/gate/tasks/:id/history & /api/quality/gate/tasks/:id/history
+  const handleGetTaskQualityGateHistory = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<void> => {
+    if (!qualityGateService) {
+      throw new AppError('SERVICE_UNAVAILABLE', 'QualityGateService is not configured');
+    }
+    const params = TaskParamsSchema.parse(request.params);
+    const history = qualityGateService.getHistoryForTask(params.id);
+    return reply.status(200).send({ data: history });
+  };
+
+  fastify.get('/quality/gate/tasks/:id/history', handleGetTaskQualityGateHistory);
+  fastify.get('/api/quality/gate/tasks/:id/history', handleGetTaskQualityGateHistory);
+
+  // POST /tasks/:id/verify & /api/tasks/:id/verify
+  const handleVerifyTask = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<void> => {
+    if (!qualityGateService) {
+      throw new AppError('SERVICE_UNAVAILABLE', 'QualityGateService is not configured');
+    }
+    const params = TaskParamsSchema.parse(request.params);
+    const body = TaskVerifyBodySchema.parse(request.body ?? {});
+    const result = await qualityGateService.verifyAndTransitionTask(params.id, {
+      runId: body.runId,
+      repoPath: body.repoPath,
+      policy: body.policy,
+      customReason: body.customReason,
+      autoTransition: body.autoTransition,
+    });
+    return reply.status(200).send({ data: result });
+  };
+
+  fastify.post('/tasks/:id/verify', handleVerifyTask);
+  fastify.post('/api/tasks/:id/verify', handleVerifyTask);
 };
+

@@ -738,3 +738,13 @@
 - Lưu vết báo cáo kiểm toán đầy đủ dưới dạng bản ghi `kind: 'repair_loop'` trong bảng `reports`.
 - REST API cung cấp `/quality/repair-loop`, `/quality/repair-loops/:id`, `/tasks/:id/repair-loops`, `/tasks/:id/repair` (hỗ trợ tiền tố `/api`).
 - Không thêm dependency bên ngoài mới nào; tái sử dụng Zod, better-sqlite3 và Fastify.
+
+## QLT-007: Quality Gate tổng hợp PASS/FAIL theo policy + bằng chứng — Không PASS chỉ vì CLI báo SUCCESS
+- Triển khai nguyên tắc cốt lõi "Không PASS chỉ vì CLI báo SUCCESS": tiến trình AGY/CLI exit 0 chỉ đưa task sang `VERIFYING`, chỉ chuyển `DONE` khi toàn bộ chính sách Quality Gate đạt với bằng chứng thật.
+- Bắt buộc có bằng chứng kiểm định thực tế (`VERIFICATION_EVIDENCE_EXISTS`): từ chối PASS nếu không có lệnh kiểm tra hoặc phân tích nào được thực thi dù CLI báo exit code 0.
+- Tổng hợp chính sách kiểm định 6 tiêu chuẩn theo `SKILL-testing.md`: format/lint/typecheck exit 0, test exit 0, build exit 0 (nếu có), scope sạch (không file ngoài phạm vi), review sạch (0 high/critical), security sạch (0 secret, 0 audit high/critical).
+- Thêm Migration 011 khởi tạo bảng `quality_gate_evaluations` trong SQLite kèm index và foreign key cascade tới `tasks(id)`.
+- `QualityGateRepository` tự động tạo bản ghi Markdown audit report vào bảng `reports` (`kind: 'quality_gate'`) khi có `run_id`.
+- Tích hợp `QualityGateService` vào `TaskScheduler`: khi AGY worker hoàn tất thành công, scheduler gọi `verifyAndTransitionTask` để kiểm định đa tầng và tự động quyết định `DONE` hoặc `FAILED`.
+- REST API cung cấp `/quality/gate/evaluate`, `/quality/gate/:id`, `/quality/gate/tasks/:id/latest`, `/quality/gate/tasks/:id/history`, `/tasks/:id/verify` (hỗ trợ tiền tố `/api`).
+- Không thêm dependency bên ngoài mới nào; tuân thủ hoàn toàn quy chuẩn TypeScript strict và SQLite.

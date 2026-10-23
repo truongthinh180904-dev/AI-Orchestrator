@@ -17,6 +17,7 @@ export * from './services/quality-config-service.js';
 export * from './services/quality-runner.js';
 export * from './services/scope-diff-service.js';
 export * from './services/repair-loop-service.js';
+export * from './services/quality-gate-service.js';
 export * from './routes/runs.js';
 export * from './routes/scheduler.js';
 export * from './routes/plans.js';
