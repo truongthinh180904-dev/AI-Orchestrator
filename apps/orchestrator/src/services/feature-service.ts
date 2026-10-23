@@ -13,6 +13,9 @@ import {
   type CreateFeatureBranchInput,
   type CreateFeatureBranchResult,
   type FeatureBranchInfo,
+  type CommitFeatureReleaseInput,
+  type CommitFeatureReleaseResult,
+  type FeatureRelease,
 } from '@ai-orchestrator/shared';
 import { FeatureReleaseService, type FeatureReleaseServiceOptions } from './feature-release-service.js';
 
@@ -109,6 +112,23 @@ export class FeatureService {
     repoPath?: string,
   ): Promise<FeatureBranchInfo | null> {
     return this.releaseService.getFeatureBranchInfo(id, repoPath);
+  }
+
+  /**
+   * Tạo commit chuẩn hóa cho feature release và lưu SHA vào DB (REL-004).
+   */
+  async commitFeatureRelease(
+    id: string,
+    input?: CommitFeatureReleaseInput,
+  ): Promise<CommitFeatureReleaseResult> {
+    return this.releaseService.commitFeatureRelease(id, input);
+  }
+
+  /**
+   * Lấy thông tin release của feature từ DB.
+   */
+  getFeatureRelease(id: string): FeatureRelease | null {
+    return this.releaseService.getFeatureRelease(id);
   }
 }
 

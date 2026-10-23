@@ -19,3 +19,4 @@ export * from './security-check.js';
 export * from './repair-loop.js';
 export * from './quality-gate.js';
 export * from './release.js';
+export * from './conventional-commit.js';

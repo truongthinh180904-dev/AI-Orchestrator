@@ -11,7 +11,7 @@ import {
   CreateCheckpointBodySchema,
   CheckpointQuerySchema,
 } from '../types.js';
-import { AppError } from '@ai-orchestrator/shared';
+import { AppError, RecordTaskCommitInputSchema } from '@ai-orchestrator/shared';
 
 export interface TaskRoutesOptions {
   taskService: TaskService;
@@ -204,4 +204,15 @@ export const taskRoutes: FastifyPluginAsync<TaskRoutesOptions> = async (fastify,
 
   fastify.get('/tasks/:id/checkpoints/latest', handleLatestCheckpoint);
   fastify.get('/api/tasks/:id/checkpoints/latest', handleLatestCheckpoint);
+
+  // POST /tasks/:id/commit & POST /api/tasks/:id/commit (REL-004)
+  const handleTaskCommit = async (request: FastifyRequest, reply: FastifyReply) => {
+    const params = TaskParamsSchema.parse(request.params);
+    const body = RecordTaskCommitInputSchema.parse(request.body ?? {});
+    const result = await taskService.recordTaskCommit(params.id, body);
+    return reply.status(201).send({ data: result });
+  };
+
+  fastify.post('/tasks/:id/commit', handleTaskCommit);
+  fastify.post('/api/tasks/:id/commit', handleTaskCommit);
 };

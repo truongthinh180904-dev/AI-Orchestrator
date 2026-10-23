@@ -6,6 +6,7 @@ import {
   DefineFeatureTasksInputSchema,
   CheckReleaseReadinessInputSchema,
   CreateFeatureBranchInputSchema,
+  CommitFeatureReleaseInputSchema,
   AppError,
 } from '@ai-orchestrator/shared';
 
@@ -160,6 +161,34 @@ export const featureRoutes: FastifyPluginAsync<FeatureRoutesOptions> = async (fa
 
   fastify.get('/features/:id/branch', handleGetFeatureBranch);
   fastify.get('/api/features/:id/branch', handleGetFeatureBranch);
+
+  // POST /features/:id/commit & POST /api/features/:id/commit (REL-004)
+  const handleCommitFeatureRelease = async (request: FastifyRequest, reply: FastifyReply) => {
+    const params = FeatureParamsSchema.parse(request.params);
+    const body = CommitFeatureReleaseInputSchema.parse(request.body ?? {});
+    const result = await featureService.commitFeatureRelease(params.id, body);
+    return reply.status(201).send({ data: result });
+  };
+
+  fastify.post('/features/:id/commit', handleCommitFeatureRelease);
+  fastify.post('/api/features/:id/commit', handleCommitFeatureRelease);
+
+  // GET /features/:id/release & GET /api/features/:id/release (REL-004)
+  const handleGetFeatureRelease = async (request: FastifyRequest) => {
+    const params = FeatureParamsSchema.parse(request.params);
+    const release = featureService.getFeatureRelease(params.id);
+    if (!release) {
+      throw new AppError(
+        'RELEASE_NOT_FOUND',
+        `No release record found for feature '${params.id}'`,
+        { featureId: params.id },
+      );
+    }
+    return { data: release };
+  };
+
+  fastify.get('/features/:id/release', handleGetFeatureRelease);
+  fastify.get('/api/features/:id/release', handleGetFeatureRelease);
 };
 
 

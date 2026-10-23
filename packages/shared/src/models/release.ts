@@ -313,3 +313,72 @@ export const FeatureBranchInfoSchema = z.object({
 
 export type FeatureBranchInfo = z.infer<typeof FeatureBranchInfoSchema>;
 
+/**
+ * Tham số đầu vào để tạo commit chuẩn hóa cho feature release (REL-004).
+ */
+export const CommitFeatureReleaseInputSchema = z.object({
+  message: z.string().min(1).optional(),
+  type: z.string().optional(),
+  scope: z.string().optional(),
+  subject: z.string().optional(),
+  body: z.string().optional(),
+  stage_all: z.boolean().default(true),
+  files: z.array(z.string()).optional(),
+  allow_empty: z.boolean().default(false),
+  repo_path: z.string().optional(),
+});
+
+export type CommitFeatureReleaseInput = z.input<typeof CommitFeatureReleaseInputSchema>;
+
+/**
+ * Kết quả tạo commit chuẩn hóa cho feature release (REL-004).
+ */
+export const CommitFeatureReleaseResultSchema = z.object({
+  release_id: z.string().min(1),
+  feature_id: z.string().min(1),
+  branch: z.string().min(1),
+  commit_sha: z.string().regex(/^[0-9a-f]{40}$/i, 'Commit SHA must be a 40-character hex string'),
+  short_sha: z.string().min(7),
+  message: z.string().min(1),
+  status: FeatureReleaseStatusSchema,
+  files_committed: z.array(z.string()).default([]),
+  committed_at: z.string(),
+});
+
+export type CommitFeatureReleaseResult = z.infer<typeof CommitFeatureReleaseResultSchema>;
+
+/**
+ * Tham số đầu vào để ghi nhận hoặc thực hiện commit cho một task (REL-004).
+ */
+export const RecordTaskCommitInputSchema = z.object({
+  task_id: z.string().min(1).optional(),
+  run_id: z.string().optional(),
+  commit_sha: z.string().regex(/^[0-9a-f]{40}$/i, 'Commit SHA must be a 40-character hex string').optional(),
+  message: z.string().optional(),
+  type: z.string().optional(),
+  scope: z.string().optional(),
+  subject: z.string().optional(),
+  body: z.string().optional(),
+  stage_all: z.boolean().default(true),
+  files: z.array(z.string()).optional(),
+  allow_empty: z.boolean().default(false),
+  repo_path: z.string().optional(),
+});
+
+export type RecordTaskCommitInput = z.input<typeof RecordTaskCommitInputSchema>;
+
+/**
+ * Kết quả ghi nhận commit cho task trong database.
+ */
+export const RecordTaskCommitResultSchema = z.object({
+  task_id: z.string().min(1),
+  run_id: z.string().nullable().default(null),
+  commit_sha: z.string().regex(/^[0-9a-f]{40}$/i, 'Commit SHA must be a 40-character hex string'),
+  short_sha: z.string().min(7),
+  message: z.string(),
+  recorded_at: z.string(),
+});
+
+export type RecordTaskCommitResult = z.infer<typeof RecordTaskCommitResultSchema>;
+
+

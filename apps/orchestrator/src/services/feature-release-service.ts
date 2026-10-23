@@ -20,6 +20,9 @@ import {
   type CreateFeatureBranchInput,
   type CreateFeatureBranchResult,
   type FeatureBranchInfo,
+  type CommitFeatureReleaseInput,
+  type CommitFeatureReleaseResult,
+  type FeatureRelease,
   FeatureComponentTasksResultSchema,
   DefineFeatureTasksInputSchema,
   FeatureReleasePolicyOptionsSchema,
@@ -28,11 +31,16 @@ import {
   CreateFeatureBranchInputSchema,
   CreateFeatureBranchResultSchema,
   FeatureBranchInfoSchema,
+  CommitFeatureReleaseInputSchema,
+  CommitFeatureReleaseResultSchema,
   formatFeatureReleaseCheckMarkdownReport,
   parseCommandLine,
   validateGitBranchName,
   gitBranchExists,
   gitCreateBranch,
+  gitCommit,
+  formatConventionalCommit,
+  validateConventionalCommit,
   AppError,
   logger as defaultLogger,
   type Logger,
@@ -770,5 +778,115 @@ export class FeatureReleaseService {
       exists_locally: existsLocally,
       created_at: release.created_at,
     });
+  }
+
+  /**
+   * Tạo commit chuẩn hóa (Conventional Commits) cho feature release và lưu SHA vào DB (REL-004).
+   */
+  async commitFeatureRelease(
+    featureId: string,
+    input?: CommitFeatureReleaseInput,
+  ): Promise<CommitFeatureReleaseResult> {
+    const validatedInput = CommitFeatureReleaseInputSchema.parse(input ?? {});
+
+    const feature = this.featureRepo.findById(featureId);
+    if (!feature) {
+      throw new AppError('FEATURE_NOT_FOUND', `Feature '${featureId}' not found`, { featureId });
+    }
+
+    const release = this.releaseRepo.findByFeatureId(featureId);
+    if (!release) {
+      throw new AppError(
+        'FEATURE_BRANCH_NOT_FOUND',
+        `No release branch found for feature '${featureId}'. Call createFeatureBranch first.`,
+        { featureId },
+      );
+    }
+
+    // Resolve commit message:
+    let message: string;
+    if (validatedInput.message && validatedInput.message.trim().length > 0) {
+      message = validatedInput.message.trim();
+      validateConventionalCommit(message);
+    } else {
+      const type = (validatedInput.type || 'feat') as
+        | 'feat'
+        | 'fix'
+        | 'docs'
+        | 'style'
+        | 'refactor'
+        | 'perf'
+        | 'test'
+        | 'build'
+        | 'ci'
+        | 'chore'
+        | 'revert';
+      const scope = validatedInput.scope || featureId;
+      const subject = validatedInput.subject || `release feature ${feature.name}`;
+      message = formatConventionalCommit({
+        type,
+        scope,
+        subject,
+        body: validatedInput.body,
+      });
+      validateConventionalCommit(message);
+    }
+
+    const repoPath = path.resolve(validatedInput.repo_path ?? '.');
+
+    // Run git commit
+    const gitResult = await gitCommit(repoPath, {
+      message,
+      files: validatedInput.files,
+      stageAll: validatedInput.stage_all,
+      allowEmpty: validatedInput.allow_empty,
+      validateMessage: true,
+    });
+
+    // Update feature release in SQLite DB
+    const updatedRelease = this.releaseRepo.update(release.id, {
+      commit_sha: gitResult.commitSha,
+      status: 'COMMITTED',
+      metadata: {
+        ...release.metadata,
+        last_commit_message: message,
+        last_committed_at: gitResult.createdAt,
+        last_commit_files: gitResult.filesCommitted,
+        last_commit_branch: gitResult.branch,
+      },
+    });
+
+    this.logger.info(`Feature release committed and SHA saved in DB for '${featureId}'`, {
+      featureId,
+      releaseId: release.id,
+      branch: release.branch,
+      commitSha: gitResult.commitSha,
+      shortSha: gitResult.shortSha,
+      message,
+      status: 'COMMITTED',
+    });
+
+    return CommitFeatureReleaseResultSchema.parse({
+      release_id: updatedRelease.id,
+      feature_id: featureId,
+      branch: updatedRelease.branch,
+      commit_sha: gitResult.commitSha,
+      short_sha: gitResult.shortSha,
+      message,
+      status: 'COMMITTED',
+      files_committed: gitResult.filesCommitted,
+      committed_at: gitResult.createdAt,
+    });
+  }
+
+  /**
+   * Lấy thông tin bản ghi release của feature từ DB.
+   */
+  getFeatureRelease(featureId: string): FeatureRelease | null {
+    const feature = this.featureRepo.findById(featureId);
+    if (!feature) {
+      throw new AppError('FEATURE_NOT_FOUND', `Feature '${featureId}' not found`, { featureId });
+    }
+    return this.releaseRepo.findByFeatureId(featureId);
   }
 }

@@ -1,5 +1,6 @@
+import path from 'node:path';
 import type Database from 'better-sqlite3';
-import { TaskRepository } from '@ai-orchestrator/db';
+import { TaskRepository, RunRepository } from '@ai-orchestrator/db';
 import {
   AppError,
   type TaskWithDependencies,
@@ -11,6 +12,13 @@ import {
   type Checkpoint,
   type CreateCheckpointInput,
   type CheckpointFilter,
+  type RecordTaskCommitInput,
+  type RecordTaskCommitResult,
+  RecordTaskCommitInputSchema,
+  RecordTaskCommitResultSchema,
+  gitCommit,
+  formatConventionalCommit,
+  validateConventionalCommit,
 } from '@ai-orchestrator/shared';
 import { TaskStateService, type TransitionTaskOptions } from './task-state-service.js';
 import {
@@ -21,12 +29,14 @@ import { TaskHistoryService } from './task-history-service.js';
 
 export class TaskService {
   private readonly taskRepo: TaskRepository;
+  private readonly runRepo: RunRepository;
   private readonly stateService: TaskStateService;
   private readonly resolverService: DependencyResolverService;
   private readonly historyService: TaskHistoryService;
 
   constructor(db: Database.Database) {
     this.taskRepo = new TaskRepository(db);
+    this.runRepo = new RunRepository(db);
     this.stateService = new TaskStateService(db);
     this.resolverService = new DependencyResolverService(db);
     this.historyService = new TaskHistoryService({ db });
@@ -130,5 +140,90 @@ export class TaskService {
 
   getLatestCheckpoint(id: string): Checkpoint | null {
     return this.historyService.getLatestCheckpoint(id);
+  }
+
+  /**
+   * Thực hiện commit chuẩn hóa và/hoặc ghi nhận commit SHA cho task vào DB (REL-004).
+   */
+  async recordTaskCommit(
+    id: string,
+    input?: RecordTaskCommitInput,
+  ): Promise<RecordTaskCommitResult> {
+    const task = this.getById(id);
+    const validated = RecordTaskCommitInputSchema.parse(input ?? {});
+
+    let commitSha: string;
+    let message: string;
+    let shortSha: string;
+
+    if (validated.commit_sha) {
+      commitSha = validated.commit_sha;
+      shortSha = commitSha.slice(0, 7);
+      message = validated.message ?? `feat(${id}): ${task.title}`;
+    } else {
+      const type = (validated.type || 'feat') as
+        | 'feat'
+        | 'fix'
+        | 'docs'
+        | 'style'
+        | 'refactor'
+        | 'perf'
+        | 'test'
+        | 'build'
+        | 'ci'
+        | 'chore'
+        | 'revert';
+      const scope = validated.scope || id;
+      const subject = validated.subject || task.title;
+      message =
+        validated.message ??
+        formatConventionalCommit({
+          type,
+          scope,
+          subject,
+          body: validated.body,
+        });
+      validateConventionalCommit(message);
+
+      const repoPath = path.resolve(validated.repo_path ?? task.repository ?? '.');
+      const gitResult = await gitCommit(repoPath, {
+        message,
+        files: validated.files,
+        stageAll: validated.stage_all,
+        allowEmpty: validated.allow_empty,
+        validateMessage: true,
+      });
+      commitSha = gitResult.commitSha;
+      shortSha = gitResult.shortSha;
+      message = gitResult.message;
+    }
+
+    // Lưu SHA vào DB (bảng runs)
+    let runId: string | null = null;
+    if (validated.run_id) {
+      runId = validated.run_id;
+      this.runRepo.update(runId, { commit_sha: commitSha });
+    } else {
+      const runs = this.runRepo.findByTaskId(id);
+      if (runs.length > 0) {
+        // Runs are sorted by started_at DESC in typical queries, update the latest run
+        const latestRun = runs[runs.length - 1];
+        if (latestRun) {
+          runId = latestRun.id;
+          this.runRepo.update(runId, { commit_sha: commitSha });
+        }
+      }
+    }
+
+    const recordedAt = new Date().toISOString();
+
+    return RecordTaskCommitResultSchema.parse({
+      task_id: id,
+      run_id: runId,
+      commit_sha: commitSha,
+      short_sha: shortSha,
+      message,
+      recorded_at: recordedAt,
+    });
   }
 }

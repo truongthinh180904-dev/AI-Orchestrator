@@ -16,6 +16,8 @@ import {
   gitGetCurrentBranch,
   gitGetRefCommit,
   gitCreateBranch,
+  gitCommit,
+  gitGetCommitDetails,
 } from '../git.js';
 
 
@@ -423,6 +425,127 @@ describe('git status & checkRepoClean unit tests', () => {
 
       const invalidSha = await gitGetRefCommit(tmpDir, 'invalid-ref-xyz');
       expect(invalidSha).toBeNull();
+    });
+  });
+
+  describe('gitCommit and gitGetCommitDetails unit tests (REL-004)', () => {
+    let tmpDir: string;
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'git-commit-test-'));
+      execSync('git init -b main', { cwd: tmpDir, stdio: 'ignore' });
+      execSync('git config user.email "test@example.com"', { cwd: tmpDir, stdio: 'ignore' });
+      execSync('git config user.name "Test User"', { cwd: tmpDir, stdio: 'ignore' });
+      fs.writeFileSync(path.join(tmpDir, 'README.md'), '# Initial Repo\n');
+      execSync('git add . && git commit -m "chore: initial commit"', { cwd: tmpDir, stdio: 'ignore' });
+    });
+
+    afterEach(() => {
+      if (tmpDir && fs.existsSync(tmpDir)) {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it('creates commit with valid Conventional Commit message and returns 40-char SHA', async () => {
+      fs.writeFileSync(path.join(tmpDir, 'hello.txt'), 'Hello world');
+
+      const result = await gitCommit(tmpDir, {
+        message: 'feat(core): add hello world feature',
+        stageAll: true,
+      });
+
+      expect(result.commitSha).toHaveLength(40);
+      expect(result.shortSha).toHaveLength(7);
+      expect(result.message).toBe('feat(core): add hello world feature');
+      expect(result.branch).toBe('main');
+      expect(result.filesCommitted).toContain('hello.txt');
+
+      // Verify commit details
+      const details = await gitGetCommitDetails(tmpDir, result.commitSha);
+      expect(details).not.toBeNull();
+      expect(details?.commitSha).toBe(result.commitSha);
+      expect(details?.subject).toBe('feat(core): add hello world feature');
+    });
+
+    it('commits specific files when specified in options', async () => {
+      fs.writeFileSync(path.join(tmpDir, 'file1.txt'), 'First file');
+      fs.writeFileSync(path.join(tmpDir, 'file2.txt'), 'Second file');
+
+      const result = await gitCommit(tmpDir, {
+        message: 'fix(parser): stage only file1',
+        files: ['file1.txt'],
+      });
+
+      expect(result.commitSha).toHaveLength(40);
+      expect(result.filesCommitted).toEqual(['file1.txt']);
+
+      // file2.txt should remain unstaged / untracked
+      const status = await getRepoStatus(tmpDir);
+      expect(status.files.map((f) => f.path)).toContain('file2.txt');
+    });
+
+    it('rejects commit message that violates Conventional Commits (INVALID_COMMIT_MESSAGE)', async () => {
+      fs.writeFileSync(path.join(tmpDir, 'invalid.txt'), 'changes');
+
+      await expect(
+        gitCommit(tmpDir, {
+          message: 'not a conventional commit message',
+          stageAll: true,
+        }),
+      ).rejects.toThrow(AppError);
+
+      try {
+        await gitCommit(tmpDir, {
+          message: 'not a conventional commit message',
+          stageAll: true,
+        });
+        expect.unreachable('Should have thrown');
+      } catch (err: unknown) {
+        expect(err).toBeInstanceOf(AppError);
+        expect((err as AppError).code).toBe('INVALID_COMMIT_MESSAGE');
+      }
+    });
+
+    it('rejects commit if nothing is staged and allowEmpty is false (NOTHING_TO_COMMIT)', async () => {
+      await expect(
+        gitCommit(tmpDir, {
+          message: 'chore(empty): nothing to commit',
+        }),
+      ).rejects.toThrow(AppError);
+
+      try {
+        await gitCommit(tmpDir, {
+          message: 'chore(empty): nothing to commit',
+        });
+      } catch (err: unknown) {
+        expect(err).toBeInstanceOf(AppError);
+        expect((err as AppError).code).toBe('NOTHING_TO_COMMIT');
+      }
+    });
+
+    it('allows empty commit when allowEmpty: true', async () => {
+      const result = await gitCommit(tmpDir, {
+        message: 'chore(release): trigger empty release checkpoint',
+        allowEmpty: true,
+      });
+
+      expect(result.commitSha).toHaveLength(40);
+      expect(result.filesCommitted).toHaveLength(0);
+    });
+
+    it('supports custom author in commit', async () => {
+      const result = await gitCommit(tmpDir, {
+        message: 'docs(readme): add custom author note',
+        allowEmpty: true,
+        author: {
+          name: 'Agent Tester',
+          email: 'agent@orchestrator.local',
+        },
+      });
+
+      const details = await gitGetCommitDetails(tmpDir, result.commitSha);
+      expect(details?.authorName).toBe('Agent Tester');
+      expect(details?.authorEmail).toBe('agent@orchestrator.local');
     });
   });
 });

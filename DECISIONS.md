@@ -777,3 +777,12 @@
 - REST API: Thêm `POST /features/:id/branch` (HTTP 201 tạo branch, 409 khi branch trùng, 422 khi bị chặn release) và `GET /features/:id/branch` (HTTP 200/404).
 - Không thêm dependency bên ngoài mới; tái sử dụng các tiện ích Git an toàn qua `child_process.spawn`.
 
+
+## REL-004: Commit chuẩn hóa, lưu SHA
+- Chuẩn hóa commit theo Conventional Commits 1.0.0 với 11 kiểu commit chuẩn (feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert); từ chối message sai với INVALID_COMMIT_MESSAGE (HTTP 400).
+- Dùng `child_process.spawn('git', ['commit', '-m', message])` an toàn, cấm shell: true; truy vấn commit SHA 40 ký tự qua `git rev-parse HEAD`.
+- Kiểm tra staged changes qua `git diff --cached --name-only`; nếu rỗng và không có cờ `allowEmpty: true` thì từ chối bằng NOTHING_TO_COMMIT (HTTP 400).
+- Tự động sinh commit message chuẩn `feat(<featureId>): release feature <name>` khi caller không truyền message tùy chỉnh.
+- Cập nhật bản ghi `feature_releases`: lưu `commit_sha = SHA`, chuyển trạng thái `status = 'COMMITTED'`, lưu vết metadata (thời gian, message, files committed).
+- Hỗ trợ `recordTaskCommit` cho từng task: lưu SHA 40 ký tự vào trường `commit_sha` của bảng `runs` trong SQLite database.
+- Cung cấp các endpoint REST API: POST /features/:id/commit, GET /features/:id/release, POST /tasks/:id/commit.

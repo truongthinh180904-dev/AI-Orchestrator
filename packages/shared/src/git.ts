@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { AppError } from './errors.js';
+import { validateConventionalCommit } from './models/conventional-commit.js';
 import type { WorktreeInfo } from './models/workspace.js';
 import {
   type FileDiffDetail,
@@ -892,5 +893,233 @@ export async function gitCreateBranch(
     createdAt,
   };
 }
+
+export interface GitCommitOptions {
+  message: string;
+  files?: string[];
+  stageAll?: boolean;
+  allowEmpty?: boolean;
+  author?: {
+    name: string;
+    email: string;
+  };
+  validateMessage?: boolean;
+}
+
+export interface GitCommitResult {
+  commitSha: string;
+  shortSha: string;
+  branch: string | null;
+  message: string;
+  filesCommitted: string[];
+  createdAt: string;
+}
+
+export interface GitCommitDetails {
+  commitSha: string;
+  shortSha: string;
+  authorName: string;
+  authorEmail: string;
+  date: string;
+  subject: string;
+  body: string | null;
+}
+
+/**
+ * Creates a git commit with standardized message format (Conventional Commits by default).
+ * Validates the commit message, stages files or all changes, checks for staged changes,
+ * executes git commit via child_process.spawn, and returns the 40-character commit SHA.
+ */
+export async function gitCommit(
+  repoPath: string,
+  options: GitCommitOptions,
+): Promise<GitCommitResult> {
+  if (!fs.existsSync(repoPath)) {
+    throw new AppError('PATH_NOT_FOUND', `Repository path does not exist: ${repoPath}`, {
+      repoPath,
+    });
+  }
+
+  const stat = fs.statSync(repoPath);
+  if (!stat.isDirectory()) {
+    throw new AppError('NOT_A_DIRECTORY', `Repository path is not a directory: ${repoPath}`, {
+      repoPath,
+    });
+  }
+
+  const { message } = options;
+  if (!message || message.trim().length === 0) {
+    throw new AppError('INVALID_COMMIT_MESSAGE', 'Commit message cannot be empty', {
+      repoPath,
+    });
+  }
+
+  // 1. Validate Conventional Commit message format if required
+  if (options.validateMessage !== false) {
+    validateConventionalCommit(message);
+  }
+
+  // 2. Stage changes if requested
+  if (options.files && options.files.length > 0) {
+    const { stderr: addStderr, exitCode: addCode } = await runGitCommand(
+      ['add', '--', ...options.files],
+      repoPath,
+    );
+    if (addCode !== 0) {
+      throw new AppError('GIT_COMMAND_FAILED', `Failed to stage files: ${addStderr.trim()}`, {
+        repoPath,
+        files: options.files,
+        stderr: addStderr,
+        exitCode: addCode,
+      });
+    }
+  } else if (options.stageAll) {
+    const { stderr: addStderr, exitCode: addCode } = await runGitCommand(
+      ['add', '-A'],
+      repoPath,
+    );
+    if (addCode !== 0) {
+      throw new AppError('GIT_COMMAND_FAILED', `Failed to stage all changes: ${addStderr.trim()}`, {
+        repoPath,
+        stderr: addStderr,
+        exitCode: addCode,
+      });
+    }
+  }
+
+  // 3. Check what files are staged in the index
+  const { stdout: stagedOut } = await runGitCommand(
+    ['diff', '--cached', '--name-only'],
+    repoPath,
+  );
+  const filesCommitted = stagedOut
+    .split(/\r?\n/)
+    .map((f) => f.trim())
+    .filter((f) => f.length > 0);
+
+  // If nothing is staged and allowEmpty is false, fail with NOTHING_TO_COMMIT
+  if (filesCommitted.length === 0 && !options.allowEmpty) {
+    throw new AppError(
+      'NOTHING_TO_COMMIT',
+      `No changes staged for commit in repository '${repoPath}'. Specify files, set stageAll: true, or allowEmpty: true.`,
+      {
+        repoPath,
+      },
+    );
+  }
+
+  // 4. Build git commit command
+  const commitArgs = ['commit', '-m', message];
+  if (options.allowEmpty) {
+    commitArgs.push('--allow-empty');
+  }
+  if (options.author) {
+    commitArgs.push('--author', `${options.author.name} <${options.author.email}>`);
+  }
+
+  const { stderr: commitStderr, exitCode: commitExit } = await runGitCommand(
+    commitArgs,
+    repoPath,
+  );
+
+  if (commitExit !== 0) {
+    if (commitStderr.toLowerCase().includes('nothing to commit')) {
+      throw new AppError(
+        'NOTHING_TO_COMMIT',
+        `No changes staged for commit: ${commitStderr.trim()}`,
+        {
+          repoPath,
+          stderr: commitStderr,
+        },
+      );
+    }
+    throw new AppError(
+      'GIT_COMMIT_FAILED',
+      `git commit failed: ${commitStderr.trim() || `Exit code ${commitExit}`}`,
+      {
+        repoPath,
+        message,
+        stderr: commitStderr,
+        exitCode: commitExit,
+      },
+    );
+  }
+
+  // 5. Query the 40-character commit SHA of HEAD
+  const { stdout: revStdout, exitCode: revExit, stderr: revStderr } = await runGitCommand(
+    ['rev-parse', 'HEAD'],
+    repoPath,
+  );
+
+  if (revExit !== 0 || !revStdout.trim()) {
+    throw new AppError(
+      'GIT_COMMAND_FAILED',
+      `Failed to resolve commit SHA after commit: ${revStderr.trim()}`,
+      {
+        repoPath,
+        stderr: revStderr,
+        exitCode: revExit,
+      },
+    );
+  }
+
+  const commitSha = revStdout.trim();
+  if (!/^[0-9a-f]{40}$/i.test(commitSha)) {
+    throw new AppError('GIT_COMMAND_FAILED', `Invalid commit SHA returned: ${commitSha}`, {
+      repoPath,
+      commitSha,
+    });
+  }
+
+  const shortSha = commitSha.slice(0, 7);
+  const branch = await gitGetCurrentBranch(repoPath);
+  const createdAt = new Date().toISOString();
+
+  return {
+    commitSha,
+    shortSha,
+    branch,
+    message,
+    filesCommitted,
+    createdAt,
+  };
+}
+
+/**
+ * Retrieves details of a specific commit by reference (defaults to HEAD).
+ */
+export async function gitGetCommitDetails(
+  repoPath: string,
+  ref = 'HEAD',
+): Promise<GitCommitDetails | null> {
+  const { stdout, exitCode } = await runGitCommand(
+    ['log', '-1', '--format=%H%x1f%h%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%b', ref],
+    repoPath,
+  );
+
+  if (exitCode !== 0 || !stdout.trim()) {
+    return null;
+  }
+
+  const parts = stdout.trim().split('\x1f');
+  const commitSha = parts[0]?.trim() ?? '';
+  const shortSha = parts[1]?.trim() ?? commitSha.slice(0, 7);
+  const authorName = parts[2]?.trim() ?? '';
+  const authorEmail = parts[3]?.trim() ?? '';
+  const date = parts[4]?.trim() ?? new Date().toISOString();
+  const subject = parts[5]?.trim() ?? '';
+  const body = parts[6]?.trim() || null;
+
+  return {
+    commitSha,
+    shortSha,
+    authorName,
+    authorEmail,
+    date,
+    subject,
+    body,
+  };
+}
+
 
 

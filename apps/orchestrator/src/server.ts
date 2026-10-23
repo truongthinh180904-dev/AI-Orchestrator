@@ -54,6 +54,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
         case 'REPAIR_LOOP_NOT_FOUND':
         case 'QUALITY_GATE_NOT_FOUND':
         case 'FEATURE_BRANCH_NOT_FOUND':
+        case 'RELEASE_NOT_FOUND':
           statusCode = 404;
           break;
         case 'FEATURE_RELEASE_BLOCKED':
@@ -77,6 +78,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
         case 'REVIEWER_SPAWN_ERROR':
         case 'REVIEWER_EXECUTION_FAILED':
         case 'DATABASE_NOT_CONFIGURED':
+        case 'GIT_COMMIT_FAILED':
           statusCode = 500;
           break;
         case 'VALIDATION_ERROR':
@@ -110,6 +112,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
         case 'NOT_A_DIRECTORY':
         case 'INVALID_BRANCH_NAME':
         case 'BASE_REF_NOT_FOUND':
+        case 'INVALID_COMMIT_MESSAGE':
+        case 'NOTHING_TO_COMMIT':
           statusCode = 400;
           break;
         default:

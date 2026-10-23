@@ -1,3 +1,8 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { execSync, type ChildProcess } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type Database from 'better-sqlite3';
 import {
@@ -16,8 +21,6 @@ import {
   type ProcessExitResult,
 } from '@ai-orchestrator/shared';
 import { ProcessAdapter, type ProcessHandle } from '../adapters/process-adapter.js';
-import { EventEmitter } from 'node:events';
-import type { ChildProcess } from 'node:child_process';
 
 describe('FeatureReleaseService', () => {
   let db: Database.Database;
@@ -714,6 +717,142 @@ describe('FeatureReleaseService', () => {
       } catch (err: unknown) {
         expect(err).toBeInstanceOf(AppError);
         expect((err as AppError).code).toBe('INVALID_BRANCH_NAME');
+      }
+    });
+  });
+
+  describe('commitFeatureRelease & getFeatureRelease (REL-004)', () => {
+    let tmpGitDir: string;
+
+    beforeEach(() => {
+      tmpGitDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rel004-service-test-'));
+      execSync('git init -b main', { cwd: tmpGitDir, stdio: 'ignore' });
+      execSync('git config user.email "test@example.com"', { cwd: tmpGitDir, stdio: 'ignore' });
+      execSync('git config user.name "Test User"', { cwd: tmpGitDir, stdio: 'ignore' });
+      fs.writeFileSync(path.join(tmpGitDir, 'README.md'), '# Base Project\n');
+      execSync('git add . && git commit -m "chore: base init commit"', { cwd: tmpGitDir, stdio: 'ignore' });
+    });
+
+    afterEach(() => {
+      if (tmpGitDir && fs.existsSync(tmpGitDir)) {
+        fs.rmSync(tmpGitDir, { recursive: true, force: true });
+      }
+    });
+
+    it('Tạo commit chuẩn hóa và lưu SHA 40 ký tự vào DB (status = COMMITTED)', async () => {
+      featureRepo.create({
+        id: 'FEAT-COMMIT-1',
+        name: 'Authentication Module',
+        required_tasks: [],
+      });
+
+      // Tạo branch trước (REL-003)
+      await releaseService.createFeatureBranch('FEAT-COMMIT-1', {
+        repo_path: tmpGitDir,
+        checkout: true,
+        skip_readiness_check: true,
+      });
+
+      // Tạo thay đổi mới trong repo
+      fs.writeFileSync(path.join(tmpGitDir, 'auth.ts'), 'export const auth = true;');
+
+      const commitResult = await releaseService.commitFeatureRelease('FEAT-COMMIT-1', {
+        repo_path: tmpGitDir,
+        message: 'feat(FEAT-COMMIT-1): implement user authentication',
+      });
+
+      expect(commitResult.commit_sha).toHaveLength(40);
+      expect(commitResult.short_sha).toBe(commitResult.commit_sha.slice(0, 7));
+      expect(commitResult.status).toBe('COMMITTED');
+      expect(commitResult.message).toBe('feat(FEAT-COMMIT-1): implement user authentication');
+
+      // Kiểm tra SHA đã lưu trong DB
+      const releaseInDb = releaseService.getFeatureRelease('FEAT-COMMIT-1');
+      expect(releaseInDb).not.toBeNull();
+      expect(releaseInDb?.commit_sha).toBe(commitResult.commit_sha);
+      expect(releaseInDb?.status).toBe('COMMITTED');
+    });
+
+    it('Tạo commit tự sinh message chuẩn Conventional Commits khi không truyền message', async () => {
+      featureRepo.create({
+        id: 'FEAT-AUTO-MSG',
+        name: 'Payment Gateway',
+        required_tasks: [],
+      });
+
+      await releaseService.createFeatureBranch('FEAT-AUTO-MSG', {
+        repo_path: tmpGitDir,
+        checkout: true,
+        skip_readiness_check: true,
+      });
+
+      fs.writeFileSync(path.join(tmpGitDir, 'payment.ts'), 'export const pay = true;');
+
+      const commitResult = await releaseService.commitFeatureRelease('FEAT-AUTO-MSG', {
+        repo_path: tmpGitDir,
+      });
+
+      expect(commitResult.commit_sha).toHaveLength(40);
+      expect(commitResult.message).toBe('feat(FEAT-AUTO-MSG): release feature Payment Gateway');
+      expect(commitResult.status).toBe('COMMITTED');
+
+      const releaseInDb = releaseService.getFeatureRelease('FEAT-AUTO-MSG');
+      expect(releaseInDb?.commit_sha).toBe(commitResult.commit_sha);
+    });
+
+    it('Chặn commit nếu branch feature chưa được tạo (FEATURE_BRANCH_NOT_FOUND)', async () => {
+      featureRepo.create({
+        id: 'FEAT-NO-BRANCH',
+        name: 'No Branch Feature',
+        required_tasks: [],
+      });
+
+      await expect(
+        releaseService.commitFeatureRelease('FEAT-NO-BRANCH', {
+          repo_path: tmpGitDir,
+        }),
+      ).rejects.toThrow(AppError);
+
+      try {
+        await releaseService.commitFeatureRelease('FEAT-NO-BRANCH', {
+          repo_path: tmpGitDir,
+        });
+      } catch (err: unknown) {
+        expect(err).toBeInstanceOf(AppError);
+        expect((err as AppError).code).toBe('FEATURE_BRANCH_NOT_FOUND');
+      }
+    });
+
+    it('Từ chối commit message không tuân theo Conventional Commits (INVALID_COMMIT_MESSAGE)', async () => {
+      featureRepo.create({
+        id: 'FEAT-INVALID-MSG',
+        name: 'Invalid Message Feature',
+        required_tasks: [],
+      });
+
+      await releaseService.createFeatureBranch('FEAT-INVALID-MSG', {
+        repo_path: tmpGitDir,
+        checkout: true,
+        skip_readiness_check: true,
+      });
+
+      fs.writeFileSync(path.join(tmpGitDir, 'change.txt'), 'some content');
+
+      await expect(
+        releaseService.commitFeatureRelease('FEAT-INVALID-MSG', {
+          repo_path: tmpGitDir,
+          message: 'not a valid conventional commit',
+        }),
+      ).rejects.toThrow(AppError);
+
+      try {
+        await releaseService.commitFeatureRelease('FEAT-INVALID-MSG', {
+          repo_path: tmpGitDir,
+          message: 'not a valid conventional commit',
+        });
+      } catch (err: unknown) {
+        expect(err).toBeInstanceOf(AppError);
+        expect((err as AppError).code).toBe('INVALID_COMMIT_MESSAGE');
       }
     });
   });
