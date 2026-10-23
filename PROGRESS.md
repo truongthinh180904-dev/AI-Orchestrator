@@ -51,7 +51,7 @@ Trạng thái: `TODO` | `IN_PROGRESS` | `DONE` | `FAILED` | `BLOCKED`
 | UI-003 | DONE | 1 | fbe1c2c | Hoàn thành lúc 2026-10-23 15:43 +07:00 |
 | UI-004 | DONE | 1 | ffa1eb3 | Hoàn thành lúc 2026-10-23 16:12 +07:00 |
 | UI-005 | DONE | 1 | d68af64 | Hoàn thành lúc 2026-10-23 16:41 +07:00 |
-| UI-006 | IN_PROGRESS | 1 | | Đang thực hiện |
+| UI-006 | DONE | 1 | a308e01 | Hoàn thành lúc 2026-10-23 17:16 +07:00 |
 | UI-007 | TODO | 0 | | |
 | UI-008 | TODO | 0 | | |
 | OPS-001 | TODO | 0 | | |
