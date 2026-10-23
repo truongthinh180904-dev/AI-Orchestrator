@@ -29,6 +29,7 @@ export const SchedulerStatusSchema = z.object({
   activeTaskId: z.string().nullable(),
   activeRunId: z.string().nullable(),
   readyTasksCount: z.number(),
+  quotaStatus: z.any().optional(),
 });
 
 export type SchedulerStatus = z.infer<typeof SchedulerStatusSchema>;

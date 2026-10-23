@@ -6,6 +6,8 @@ import {
   type SchedulerStatus,
   type ScheduleNextOptions,
   type ScheduleStepResult,
+  type ResourceAcquisitionResult,
+  isQuotaOrRateLimitError,
   RetryPolicy,
   type RetryPolicyInput,
   logger,
@@ -13,6 +15,7 @@ import {
 import { TaskStateService } from './task-state-service.js';
 import type { QualityGateService } from './quality-gate-service.js';
 import type { RunService } from './run-service.js';
+import type { ResourceQuotaManager } from './resource-quota-manager.js';
 
 export const DEFAULT_AGENT_LOCK_ID = 'default_agent';
 
@@ -28,14 +31,21 @@ export interface AcquireTaskResult {
   acquired: boolean;
   task?: TaskWithDependencies;
   lock?: AgentLock;
-  reason?: 'LOCK_HELD' | 'NO_READY_TASKS' | 'CONCURRENCY_LIMIT_EXCEEDED' | 'ACTIVE_RUN_EXISTS';
+  reason?:
+    | 'LOCK_HELD'
+    | 'NO_READY_TASKS'
+    | 'CONCURRENCY_LIMIT_EXCEEDED'
+    | 'ACTIVE_RUN_EXISTS'
+    | 'RESOURCE_QUOTA_BLOCKED';
   activeTaskId?: string;
+  quotaResult?: ResourceAcquisitionResult;
 }
 
 export interface TaskSchedulerOptions {
   db: Database.Database;
   runService: RunService;
   qualityGateService?: QualityGateService;
+  resourceQuotaManager?: ResourceQuotaManager;
   lockId?: string;
   autoVerify?: boolean;
   retryPolicy?: RetryPolicy | RetryPolicyInput;
@@ -51,6 +61,7 @@ export class TaskScheduler {
   private readonly stateService: TaskStateService;
   private readonly runService: RunService;
   private readonly qualityGateService?: QualityGateService;
+  private readonly resourceQuotaManager?: ResourceQuotaManager;
   private readonly lockId: string;
   private readonly autoVerifyDefault: boolean;
   private readonly retryPolicy: RetryPolicy;
@@ -66,6 +77,7 @@ export class TaskScheduler {
     this.db = options.db;
     this.runService = options.runService;
     this.qualityGateService = options.qualityGateService;
+    this.resourceQuotaManager = options.resourceQuotaManager;
     this.taskRepo = new TaskRepository(this.db);
     this.lockRepo = new AgentLockRepository(this.db);
     this.runRepo = new RunRepository(this.db);
@@ -82,6 +94,10 @@ export class TaskScheduler {
 
   get retry(): RetryPolicy {
     return this.retryPolicy;
+  }
+
+  get quotaManager(): ResourceQuotaManager | undefined {
+    return this.resourceQuotaManager;
   }
 
   get isRunning(): boolean {
@@ -107,6 +123,22 @@ export class TaskScheduler {
    */
   acquireNextTask(options?: AcquireTaskOptions): AcquireTaskResult {
     const lockId = options?.lockId ?? this.lockId;
+
+    // Check resource and quota manager limits before entering transaction
+    if (this.resourceQuotaManager) {
+      const check = this.resourceQuotaManager.canAcquire();
+      if (!check.allowed) {
+        return {
+          acquired: false,
+          reason:
+            check.reason === 'CONCURRENCY_LIMIT_REACHED'
+              ? 'CONCURRENCY_LIMIT_EXCEEDED'
+              : 'RESOURCE_QUOTA_BLOCKED',
+          activeTaskId: check.activeTaskId,
+          quotaResult: check,
+        };
+      }
+    }
 
     const acquireTx = this.db.transaction(() => {
       // 1. Check if agent lock is already held
@@ -166,6 +198,22 @@ export class TaskScheduler {
           acquired: false,
           reason: 'NO_READY_TASKS' as const,
         };
+      }
+
+      // Check resource and quota manager against candidate task
+      if (this.resourceQuotaManager) {
+        const check = this.resourceQuotaManager.canAcquire({ taskId: candidate.id });
+        if (!check.allowed) {
+          return {
+            acquired: false,
+            reason:
+              check.reason === 'CONCURRENCY_LIMIT_REACHED'
+                ? ('CONCURRENCY_LIMIT_EXCEEDED' as const)
+                : ('RESOURCE_QUOTA_BLOCKED' as const),
+            activeTaskId: check.activeTaskId,
+            quotaResult: check,
+          };
+        }
       }
 
       // 5. Atomically transition task to RUNNING and increment attempt
@@ -233,6 +281,14 @@ export class TaskScheduler {
 
     const task = acquireResult.task;
     this._activeTaskId = task.id;
+
+    if (this.resourceQuotaManager) {
+      try {
+        this.resourceQuotaManager.acquireSlot(task.id);
+      } catch (quotaErr) {
+        logger.warn(`Resource quota acquisition failed for task '${task.id}'`, { error: quotaErr });
+      }
+    }
 
     logger.info(`Scheduler executing task '${task.id}'`, {
       taskId: task.id,
@@ -306,6 +362,7 @@ export class TaskScheduler {
             runId: run.id,
           });
         }
+        this.resourceQuotaManager?.recordSuccess(task.id, run.id);
         try {
           this.checkpointRepo.create({
             task_id: task.id,
@@ -351,6 +408,14 @@ export class TaskScheduler {
           reason: failureReason,
           runId: run.id,
         });
+
+        if (isQuotaOrRateLimitError(failureReason)) {
+          this.resourceQuotaManager?.recordQuotaHit({
+            taskId: task.id,
+            runId: run.id,
+            error: failureReason,
+          });
+        }
         try {
           this.checkpointRepo.create({
             task_id: task.id,
@@ -440,6 +505,13 @@ export class TaskScheduler {
       });
 
       const errMessage = error instanceof Error ? error.message : 'Unexpected scheduler error';
+      if (isQuotaOrRateLimitError(error)) {
+        this.resourceQuotaManager?.recordQuotaHit({
+          taskId: task.id,
+          runId: this._activeRunId ?? undefined,
+          error,
+        });
+      }
       try {
         this.stateService.markFailed(task.id, {
           reason: errMessage,
@@ -485,6 +557,10 @@ export class TaskScheduler {
         reason: errMessage,
       };
     } finally {
+      // Release quota slot if managed
+      if (this.resourceQuotaManager) {
+        this.resourceQuotaManager.releaseSlot(task.id, this._activeRunId ?? undefined);
+      }
       // Release lock unconditionally
       this.lockRepo.release(this.lockId, task.id);
       this._activeTaskId = null;
@@ -568,6 +644,7 @@ export class TaskScheduler {
       activeTaskId: this._activeTaskId ?? currentLock?.task_id ?? null,
       activeRunId: this._activeRunId ?? currentLock?.run_id ?? null,
       readyTasksCount: readyTasks.length,
+      quotaStatus: this.resourceQuotaManager?.getStatus(),
     };
   }
 

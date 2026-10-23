@@ -26,6 +26,7 @@ import type { RepairLoopService } from './services/repair-loop-service.js';
 import type { QualityGateService } from './services/quality-gate-service.js';
 import type { FeatureService } from './services/feature-service.js';
 import type { FeatureReleaseService } from './services/feature-release-service.js';
+import type { ResourceQuotaManager } from './services/resource-quota-manager.js';
 
 export const ImportRequestSchema = z.object({
   filePath: z.string().optional(),
@@ -251,4 +252,5 @@ export interface BuildServerOptions {
   qualityGateService?: QualityGateService;
   featureService?: FeatureService;
   featureReleaseService?: FeatureReleaseService;
+  resourceQuotaManager?: ResourceQuotaManager;
 }

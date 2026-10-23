@@ -889,3 +889,11 @@
 - Tích hợp trang `/releases` (`apps/dashboard/src/app/releases/page.tsx`), navigation item, và cập nhật `StatusBadge` cho các trạng thái phát hành (`READY_FOR_REVIEW`, `PR_CREATED`, `PUSHED`, `COMMITTED`, `BRANCH_CREATED`, `MERGED`).
 - Không thêm dependency bên ngoài mới; tuân thủ TypeScript `strict: true` và nguyên tắc frontend chỉ hiển thị/điều khiển, toàn bộ logic thuộc backend Orchestrator.
 
+
+## OPS-001: Resource & Quota Manager (concurrency, backoff)
+- Triển khai `ResourceQuotaManager` (`apps/orchestrator/src/services/resource-quota-manager.ts`) quản trị concurrency (mặc định 1 process), inter-run cooldown, rolling window rate limit, exponential backoff và circuit breaker.
+- Định nghĩa schema Zod `ResourceQuotaConfigSchema` và các kiểu dữ liệu `ResourceQuotaStatus`, `ResourceAcquisitionResult` trong `@ai-orchestrator/shared/resources`.
+- Bổ sung migration `013_resource_quotas.sql` và `QuotaEventRepository` trong `@ai-orchestrator/db` ghi nhận và kiểm toán toàn bộ lịch sử quota hits, backoff, slot acquire/release và circuit breaker.
+- Tích hợp `ResourceQuotaManager` vào `TaskScheduler` (`acquireNextTask` và `step`): chặn khi tài nguyên vượt ngưỡng, kích hoạt exponential backoff khi gặp lỗi 429/quota, và tự động dọn dẹp slot.
+- Xây dựng các REST API endpoint: `GET /system/quota`, `PATCH /system/quota/config`, `POST /system/quota/reset`, `GET /system/quota/events`.
+- Không thêm dependency bên ngoài mới; tuân thủ TypeScript `strict: true` và nguyên tắc MVP "Tối đa 1 coding process tại một thời điểm".

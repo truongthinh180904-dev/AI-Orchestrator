@@ -16,6 +16,7 @@ import { ReviewerService } from './services/reviewer-service.js';
 import { SecurityCheckService } from './services/security-check-service.js';
 import { RepairLoopService } from './services/repair-loop-service.js';
 import { QualityGateService } from './services/quality-gate-service.js';
+import { ResourceQuotaManager } from './services/resource-quota-manager.js';
 import { createExecutionManager } from './adapters/execution-manager.js';
 import { healthRoutes } from './routes/health.js';
 import { taskRoutes } from './routes/tasks.js';
@@ -25,6 +26,7 @@ import { runRoutes } from './routes/runs.js';
 import { schedulerRoutes } from './routes/scheduler.js';
 import { planRoutes } from './routes/plans.js';
 import { qualityRoutes } from './routes/quality.js';
+import { quotaRoutes } from './routes/quota.js';
 
 export async function buildServer(options: BuildServerOptions): Promise<FastifyInstance> {
   const { db, logger = false } = options;
@@ -67,6 +69,9 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           break;
         case 'FEATURE_RELEASE_BLOCKED':
           statusCode = 422;
+          break;
+        case 'RESOURCE_LIMIT_EXCEEDED':
+          statusCode = 429;
           break;
         case 'TASK_ALREADY_EXISTS':
         case 'FEATURE_ALREADY_EXISTS':
@@ -204,11 +209,18 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     config: options.config,
   });
 
+  const resourceQuotaManager =
+    options.resourceQuotaManager ??
+    new ResourceQuotaManager({
+      db,
+    });
+
   const taskScheduler =
     options.taskScheduler ??
     new TaskScheduler({
       db,
       runService,
+      resourceQuotaManager,
     });
 
   const plannerService =
@@ -285,6 +297,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   await server.register(importRoutes, { importService });
   await server.register(runRoutes, { runService });
   await server.register(schedulerRoutes, { scheduler: taskScheduler });
+  await server.register(quotaRoutes, { quotaManager: resourceQuotaManager });
   await server.register(planRoutes, { plannerService });
   await server.register(qualityRoutes, {
     qualityConfigService,
