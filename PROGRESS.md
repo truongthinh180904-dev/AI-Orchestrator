@@ -49,7 +49,7 @@ Trạng thái: `TODO` | `IN_PROGRESS` | `DONE` | `FAILED` | `BLOCKED`
 | UI-001 | DONE | 1 | 9680c21 | Hoàn thành lúc 2026-10-23 14:52 +07:00 |
 | UI-002 | DONE | 1 | 401abf0 | Hoàn thành lúc 2026-10-23 15:22 +07:00 |
 | UI-003 | DONE | 1 | fbe1c2c | Hoàn thành lúc 2026-10-23 15:43 +07:00 |
-| UI-004 | TODO | 0 | | |
+| UI-004 | DONE | 1 | ffa1eb3 | Hoàn thành lúc 2026-10-23 16:12 +07:00 |
 | UI-005 | TODO | 0 | | |
 | UI-006 | TODO | 0 | | |
 | UI-007 | TODO | 0 | | |
