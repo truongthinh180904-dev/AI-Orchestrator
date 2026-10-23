@@ -293,3 +293,186 @@ export function validatePlanTasksGraph(tasks: PlanTask[]): void {
     );
   }
 }
+
+/**
+ * Review Input Schemas for approving, rejecting, and executing a plan.
+ */
+export const ApprovePlanInputSchema = z.object({
+  approved_by: z.string().min(1).optional().default('reviewer'),
+  comments: z.string().optional(),
+  edits: z
+    .object({
+      title: z.string().min(1).optional(),
+      description: z.string().nullable().optional(),
+      tasks: z.array(PlanTaskInputSchema).min(1).optional(),
+    })
+    .optional(),
+});
+
+export type ApprovePlanInput = z.input<typeof ApprovePlanInputSchema>;
+
+export const RejectPlanInputSchema = z.object({
+  reason: z.string().min(1, 'Rejection reason is required and cannot be empty'),
+  rejected_by: z.string().min(1).optional().default('reviewer'),
+});
+
+export type RejectPlanInput = z.input<typeof RejectPlanInputSchema>;
+
+export const ExecutePlanInputSchema = z.object({
+  executor: z.string().optional().default('orchestrator'),
+  dryRun: z.boolean().optional().default(false),
+});
+
+export type ExecutePlanInput = z.input<typeof ExecutePlanInputSchema>;
+
+/**
+ * Comprehensive summary of plan review details.
+ */
+export const PlanReviewSummarySchema = z.object({
+  plan: PlanSchema,
+  status: PlanStatusSchema,
+  is_approved: z.boolean(),
+  can_execute: z.boolean(),
+  requires_approval: z.boolean(),
+  total_tasks: z.number().int(),
+  total_scope_files: z.number().int(),
+  unique_scope_files: z.array(z.string()),
+  total_estimated_minutes: z.number().int(),
+  execution_order: z.array(z.string()),
+  stages: z.array(z.array(z.string())),
+  warnings: z.array(z.string()),
+});
+
+export type PlanReviewSummary = z.infer<typeof PlanReviewSummarySchema>;
+
+/**
+ * Enforces the execution constraint: "Chưa duyệt → không thực thi".
+ * Throws AppError('PLAN_NOT_APPROVED') if plan is not in APPROVED status.
+ */
+export function assertPlanApproved(plan: Plan): void {
+  if (plan.status !== 'APPROVED') {
+    throw new AppError(
+      'PLAN_NOT_APPROVED',
+      `Plan '${plan.id}' is not approved (current status: '${plan.status}'). Plan must be approved before execution.`,
+      {
+        planId: plan.id,
+        status: plan.status,
+      },
+    );
+  }
+}
+
+/**
+ * Computes a comprehensive review summary for a plan, including topological order,
+ * execution stages, scope file uniqueness, and potential conflict warnings.
+ */
+export function computePlanReviewSummary(plan: Plan): PlanReviewSummary {
+  const tasks = plan.tasks;
+  const is_approved = plan.status === 'APPROVED';
+  const can_execute = is_approved;
+  const requires_approval = plan.status === 'PENDING_APPROVAL';
+
+  // Total scope files and unique scope files
+  const allScopeFiles: string[] = [];
+  const fileToTasks = new Map<string, string[]>();
+  let totalEstimatedMinutes = 0;
+
+  for (const task of tasks) {
+    totalEstimatedMinutes += task.timeout_minutes ?? 30;
+    for (const f of task.scope_files) {
+      allScopeFiles.push(f);
+      const list = fileToTasks.get(f) ?? [];
+      list.push(task.id);
+      fileToTasks.set(f, list);
+    }
+  }
+
+  const unique_scope_files = Array.from(new Set(allScopeFiles)).sort();
+
+  // Execution order (topological sort)
+  const graph = new DependencyGraph(
+    tasks.map((t) => ({
+      id: t.id,
+      dependencies: t.dependencies,
+      priority: t.priority,
+    })),
+  );
+
+  let execution_order: string[];
+  try {
+    execution_order = graph.topologicalSort();
+  } catch {
+    execution_order = tasks.map((t) => t.id);
+  }
+
+  // Calculate dependency stages (depth levels)
+  const depthMap = new Map<string, number>();
+  const taskMap = new Map(tasks.map((t) => [t.id, t]));
+
+  function getDepth(taskId: string, visited: Set<string> = new Set()): number {
+    if (depthMap.has(taskId)) {
+      return depthMap.get(taskId)!;
+    }
+    if (visited.has(taskId)) {
+      return 0; // avoid cycle crash
+    }
+    visited.add(taskId);
+    const task = taskMap.get(taskId);
+    if (!task || task.dependencies.length === 0) {
+      depthMap.set(taskId, 0);
+      return 0;
+    }
+    let maxDepDepth = 0;
+    for (const dep of task.dependencies) {
+      maxDepDepth = Math.max(maxDepDepth, getDepth(dep, visited) + 1);
+    }
+    depthMap.set(taskId, maxDepDepth);
+    return maxDepDepth;
+  }
+
+  for (const t of tasks) {
+    getDepth(t.id);
+  }
+
+  const maxDepth = Math.max(0, ...Array.from(depthMap.values()));
+  const stages: string[][] = Array.from({ length: maxDepth + 1 }, () => []);
+  for (const [taskId, depth] of depthMap.entries()) {
+    stages[depth]?.push(taskId);
+  }
+
+  // Sort tasks within each stage by priority desc, then id asc
+  for (const stage of stages) {
+    stage.sort((a, b) => {
+      const taskA = taskMap.get(a);
+      const taskB = taskMap.get(b);
+      const prioDiff = (taskB?.priority ?? 0) - (taskA?.priority ?? 0);
+      if (prioDiff !== 0) return prioDiff;
+      return a.localeCompare(b);
+    });
+  }
+
+  // Check for warnings: e.g. multiple tasks modifying the same file
+  const warnings: string[] = [];
+  for (const [file, taskIds] of fileToTasks.entries()) {
+    if (taskIds.length > 1) {
+      warnings.push(
+        `File '${file}' is modified by multiple tasks: ${taskIds.join(', ')}`,
+      );
+    }
+  }
+
+  return {
+    plan,
+    status: plan.status,
+    is_approved,
+    can_execute,
+    requires_approval,
+    total_tasks: tasks.length,
+    total_scope_files: allScopeFiles.length,
+    unique_scope_files,
+    total_estimated_minutes: totalEstimatedMinutes,
+    execution_order,
+    stages: stages.filter((s) => s.length > 0),
+    warnings,
+  };
+}

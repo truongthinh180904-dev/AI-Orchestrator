@@ -78,6 +78,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
         case 'INVALID_PLAN_SCHEMA':
         case 'PLAN_DEPENDENCY_CYCLE':
         case 'PLAN_MISSING_DEPENDENCY':
+        case 'PLAN_NOT_APPROVED':
+        case 'INVALID_PLAN_STATE_TRANSITION':
         case 'PATH_NOT_FOUND':
         case 'NOT_A_DIRECTORY':
           statusCode = 400;

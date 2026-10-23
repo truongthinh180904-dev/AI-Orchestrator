@@ -656,3 +656,14 @@
 - **Planner Service & Process Execution**: `PlannerService` gọi AGY CLI bằng `ProcessAdapter.spawn` (không dùng shell động) với prompt chuyên biệt, bóc tách JSON an toàn từ markdown fence/raw text, và giám sát timeout watchdog.
 - **REST API Endpoints**: Cung cấp `POST /plans/generate`, `POST /plans/validate`, `GET /plans/:id`, `GET /plans`, `DELETE /plans/:id` (hỗ trợ cả tiền tố `/api`).
 - **Dependencies**: Không thêm bất kỳ dependency bên ngoài nào mới; tái sử dụng Zod, better-sqlite3 và Fastify.
+
+## ORC-007: Chế độ review: plan chờ approve mới chạy — Chưa duyệt → không thực thi
+- **Mô hình Review & Approve**: Bổ sung `ApprovePlanInputSchema`, `RejectPlanInputSchema`, `PlanReviewSummarySchema`, `ExecutePlanInputSchema` trong `@ai-orchestrator/shared`.
+- **Ràng buộc nghiệm thu "Chưa duyệt → không thực thi"**: Hàm `assertPlanApproved(plan)` và `assertCanExecute(id)` kiểm tra `status === 'APPROVED'`; nếu khác `APPROVED` (như `PENDING_APPROVAL`, `REJECTED`, `DRAFT`) lập tức ném `AppError('PLAN_NOT_APPROVED')` kèm mã HTTP 400.
+- **Dịch vụ PlanReviewService**: Tách riêng dịch vụ review quản lý phê duyệt (`approvePlan`), từ chối (`rejectPlan`), chỉnh sửa (`editPlan`), gửi duyệt (`submitForReview`), và tra cứu tóm tắt (`getReviewSummary`).
+- **Tóm tắt Review & Phân tích Đồ thị**: `computePlanReviewSummary` tính toán thứ tự thực thi tô-pô DAG (`execution_order`), các tầng phụ thuộc song song (`stages`), tập hợp file phạm vi duy nhất (`unique_scope_files`), và phát hiện cảnh báo va chạm file giữa các tác vụ độc lập.
+- **Tự động yêu cầu duyệt lại khi sửa đổi**: Khi chỉnh sửa tasks trên kế hoạch đã `APPROVED`, hệ thống tự động reset trạng thái về `PENDING_APPROVAL`, xóa mốc duyệt để bảo đảm an toàn.
+- **REST API Endpoints**: Bổ sung `POST /plans/:id/approve`, `POST /plans/:id/reject`, `POST /plans/:id/submit`, `GET /plans/:id/review`, `PATCH /plans/:id`, `POST /plans/:id/execute` (hỗ trợ cả tiền tố `/api`).
+- **Centralized Error Handling**: Ánh xạ mã lỗi `PLAN_NOT_APPROVED` và `INVALID_PLAN_STATE_TRANSITION` về HTTP 400 Bad Request trong Fastify server.
+- **Dependencies**: Tái sử dụng Zod, better-sqlite3 và Fastify; không thêm dependency ngoài mới nào.
+

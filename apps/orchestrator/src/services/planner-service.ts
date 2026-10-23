@@ -6,6 +6,11 @@ import {
   type PlanFilter,
   type GeneratePlanInput,
   type Env,
+  type PlanReviewSummary,
+  type ApprovePlanInput,
+  type RejectPlanInput,
+  type UpdatePlanInput,
+  type ExecutePlanInput,
   GeneratePlanInputSchema,
   PlanContentSchema,
   extractJsonPlan,
@@ -17,6 +22,7 @@ import { PlanRepository } from '@ai-orchestrator/db';
 import { processAdapter, ProcessAdapter, type ProcessHandle } from '../adapters/process-adapter.js';
 import type { RepositoryRegistry } from '../adapters/repository-registry.js';
 import { getOrchestratorConfig } from '../config.js';
+import { PlanReviewService, type ExecutePlanResult } from './plan-review-service.js';
 
 export interface PlannerServiceOptions {
   db: Database.Database;
@@ -71,12 +77,17 @@ export class PlannerService {
   private readonly processAdapter: ProcessAdapter;
   private readonly repositoryRegistry?: RepositoryRegistry;
   private readonly config: Partial<Env>;
+  private readonly reviewService: PlanReviewService;
 
   constructor(options: PlannerServiceOptions) {
     this.db = options.db;
     this.planRepo = new PlanRepository(this.db);
     this.processAdapter = options.processAdapter ?? processAdapter;
     this.repositoryRegistry = options.repositoryRegistry;
+    this.reviewService = new PlanReviewService({
+      db: this.db,
+      planRepo: this.planRepo,
+    });
 
     let config: Partial<Env> = options.config ?? {};
     if (!options.config) {
@@ -286,5 +297,37 @@ export class PlannerService {
       throw new AppError('PLAN_NOT_FOUND', `Plan with id '${id}' not found for deletion`, { id });
     }
     return this.planRepo.delete(id);
+  }
+
+  getReviewService(): PlanReviewService {
+    return this.reviewService;
+  }
+
+  getReviewSummary(id: string): PlanReviewSummary {
+    return this.reviewService.getReviewSummary(id);
+  }
+
+  approvePlan(id: string, input?: ApprovePlanInput): Plan {
+    return this.reviewService.approvePlan(id, input);
+  }
+
+  rejectPlan(id: string, input: RejectPlanInput): Plan {
+    return this.reviewService.rejectPlan(id, input);
+  }
+
+  submitForReview(id: string): Plan {
+    return this.reviewService.submitForReview(id);
+  }
+
+  editPlan(id: string, updates: UpdatePlanInput): Plan {
+    return this.reviewService.editPlan(id, updates);
+  }
+
+  assertCanExecute(id: string): Plan {
+    return this.reviewService.assertCanExecute(id);
+  }
+
+  executePlan(id: string, input?: ExecutePlanInput): ExecutePlanResult {
+    return this.reviewService.executePlan(id, input);
   }
 }

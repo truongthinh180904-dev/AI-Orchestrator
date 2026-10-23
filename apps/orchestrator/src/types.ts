@@ -150,6 +150,41 @@ export const ValidatePlanBodySchema = z.object({
 });
 export type ValidatePlanBodyInput = z.infer<typeof ValidatePlanBodySchema>;
 
+export const ApprovePlanBodySchema = z.object({
+  approved_by: z.string().min(1).optional().default('reviewer'),
+  comments: z.string().optional(),
+  edits: z
+    .object({
+      title: z.string().min(1).optional(),
+      description: z.string().nullable().optional(),
+      tasks: z.array(z.record(z.string(), z.unknown())).min(1).optional(),
+    })
+    .optional(),
+});
+export type ApprovePlanBodyInput = z.infer<typeof ApprovePlanBodySchema>;
+
+export const RejectPlanBodySchema = z.object({
+  reason: z.string().min(1, 'Rejection reason is required and cannot be empty'),
+  rejected_by: z.string().min(1).optional().default('reviewer'),
+});
+export type RejectPlanBodyInput = z.infer<typeof RejectPlanBodySchema>;
+
+export const ExecutePlanBodySchema = z.object({
+  executor: z.string().optional().default('orchestrator'),
+  dryRun: z.boolean().optional().default(false),
+});
+export type ExecutePlanBodyInput = z.infer<typeof ExecutePlanBodySchema>;
+
+export const UpdatePlanBodySchema = z.object({
+  title: z.string().min(1).optional(),
+  description: z.string().nullable().optional(),
+  repository: z.string().min(1).optional(),
+  feature_id: z.string().nullable().optional(),
+  tasks: z.array(z.record(z.string(), z.unknown())).optional(),
+  status: z.enum(['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'EXECUTING', 'COMPLETED', 'FAILED']).optional(),
+});
+export type UpdatePlanBodyInput = z.infer<typeof UpdatePlanBodySchema>;
+
 export {
   CreateRunApiSchema,
   StopRunApiSchema,
