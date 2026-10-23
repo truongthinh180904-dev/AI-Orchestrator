@@ -12,3 +12,4 @@ export * from './components/Footer.js';
 export * from './components/DashboardLayout.js';
 export * from './components/StatusBadge.js';
 export * from './components/TaskFeatureDashboard.js';
+export * from './components/TaskDetail.js';

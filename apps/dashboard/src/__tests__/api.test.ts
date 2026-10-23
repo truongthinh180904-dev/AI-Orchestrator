@@ -205,6 +205,81 @@ describe('ApiClient', () => {
     expect(feature.id).toBe('FEAT-001');
   });
 
+  it('getTaskHistory queries GET /api/tasks/:id/history', async () => {
+    const mockHistory = {
+      taskId: 'TSK-001',
+      taskTitle: 'Sample Task',
+      taskStatus: 'DONE',
+      attempts: 1,
+      maxAttempts: 3,
+      latestRun: null,
+      latestCheckpoint: null,
+      history: [],
+    };
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ data: mockHistory }),
+    });
+
+    const res = await client.getTaskHistory('TSK-001');
+    expect(res.taskId).toBe('TSK-001');
+    const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('http://localhost:3000/api/tasks/TSK-001/history');
+    expect(init.method).toBe('GET');
+  });
+
+  it('getRunDetail queries GET /api/runs/:id/detail', async () => {
+    const mockDetail = {
+      run: { id: 'run-1', task_id: 'TSK-001', attempt: 1, status: 'SUCCESS' },
+      task: null,
+      result: { outcome: 'SUCCESS', success: true },
+      checkpoints: [],
+      reports: [],
+      events: [],
+      eventStats: { total: 0, byType: {} },
+    };
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ data: mockDetail }),
+    });
+
+    const res = await client.getRunDetail('run-1');
+    expect(res.run.id).toBe('run-1');
+    const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('http://localhost:3000/api/runs/run-1/detail');
+    expect(init.method).toBe('GET');
+  });
+
+  it('getTaskCheckpoints queries GET /api/tasks/:id/checkpoints with filter', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ data: [{ id: 'cp-1', step: 'compile' }] }),
+    });
+
+    const checkpoints = await client.getTaskCheckpoints('TSK-001', { attempt: 1, step: 'compile' });
+    expect(checkpoints).toHaveLength(1);
+    const [url] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('http://localhost:3000/api/tasks/TSK-001/checkpoints?attempt=1&step=compile');
+  });
+
+  it('getRunReports queries GET /api/runs/:id/reports with filter', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ data: [{ id: 'rep-1', kind: 'acceptance' }] }),
+    });
+
+    const reports = await client.getRunReports('run-1', { kind: 'acceptance' });
+    expect(reports).toHaveLength(1);
+    const [url] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('http://localhost:3000/api/runs/run-1/reports?kind=acceptance');
+  });
+
   it('checkHealth queries GET /api/health', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,

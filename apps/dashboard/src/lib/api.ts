@@ -7,6 +7,12 @@ import {
   type TaskFilter,
   type FeatureFilter,
   type UpdateTaskInput,
+  type TaskRunHistory,
+  type RunDetail,
+  type Checkpoint,
+  type CheckpointFilter,
+  type Report,
+  type ReportFilter,
 } from '@ai-orchestrator/shared';
 
 export interface ApiClientOptions {
@@ -162,6 +168,46 @@ export class ApiClient {
     return this.request<TaskWithDependencies>(`/api/tasks/${encodeURIComponent(id)}`, {
       method: 'GET',
     });
+  }
+
+  async getTaskHistory(id: string): Promise<TaskRunHistory> {
+    return this.request<TaskRunHistory>(`/api/tasks/${encodeURIComponent(id)}/history`, {
+      method: 'GET',
+    });
+  }
+
+  async getTaskCheckpoints(id: string, filter?: Partial<CheckpointFilter>): Promise<Checkpoint[]> {
+    const query = new URLSearchParams();
+    if (filter?.attempt) query.set('attempt', String(filter.attempt));
+    if (filter?.step) query.set('step', filter.step);
+    if (filter?.status) query.set('status', filter.status);
+    if (filter?.run_id) query.set('run_id', filter.run_id);
+
+    const qs = query.toString();
+    return this.request<Checkpoint[]>(
+      `/api/tasks/${encodeURIComponent(id)}/checkpoints${qs ? `?${qs}` : ''}`,
+      {
+        method: 'GET',
+      },
+    );
+  }
+
+  async getRunDetail(id: string): Promise<RunDetail> {
+    return this.request<RunDetail>(`/api/runs/${encodeURIComponent(id)}/detail`, {
+      method: 'GET',
+    });
+  }
+
+  async getRunReports(runId: string, filter?: Partial<ReportFilter>): Promise<Report[]> {
+    const query = new URLSearchParams();
+    if (filter?.kind) query.set('kind', filter.kind);
+    const qs = query.toString();
+    return this.request<Report[]>(
+      `/api/runs/${encodeURIComponent(runId)}/reports${qs ? `?${qs}` : ''}`,
+      {
+        method: 'GET',
+      },
+    );
   }
 
   async patchTask(id: string, updates: UpdateTaskInput): Promise<TaskWithDependencies> {

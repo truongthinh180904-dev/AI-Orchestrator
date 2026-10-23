@@ -827,3 +827,13 @@
 - Xây dựng component `StatusBadge` chuẩn hóa màu sắc và chỉ báo trạng thái trực quan cho tất cả các trạng thái Task và Feature.
 - Xử lý đầy đủ các trạng thái giao diện: loading indicator, error banner kèm nút "Thử lại", và empty states khi không có dữ liệu khớp bộ lọc.
 - Tích hợp vào Next.js App Router tại `apps/dashboard/src/app/tasks/page.tsx`, không thêm dependency bên ngoài mới.
+
+## UI-003: Task detail + timeline — Lịch sử thật
+- Thêm các method truy xuất lịch sử vào `ApiClient`: `getTaskHistory(id)`, `getRunDetail(id)`, `getTaskCheckpoints(id, filter)`, `getRunReports(runId, filter)`.
+- Xây dựng component `TaskDetail`: hiển thị metadata, acceptance criteria, test commands, scope files, dependencies link và timeline thực thi ("Lịch sử thật").
+- Hỗ trợ xem nhiều attempt: hiển thị status, outcome, thời lượng, exit code, branch, short commit SHA và error message nếu có.
+- Trình xem chi tiết run (`run-deep-inspector`): tự động chọn run mới nhất, hỗ trợ 3 sub-tab (Checkpoints timeline, Báo cáo & nghiệm thu, Sự kiện & logs kèm thống kê `eventStats`).
+- Mở rộng `StatusBadge`: bổ sung các trạng thái của Run (`SUCCESS`, `ERROR`, `TIMEOUT`, `INVALID_OUTPUT`, `PENDING`, `COMPLETED`, `SKIPPED`).
+- Xử lý đầy đủ 3 trạng thái giao diện: loading indicator, error banner kèm nút "Thử lại", và empty timeline state khi task chưa có lần chạy nào (0 attempts).
+- Tích hợp route Next.js App Router dynamic `/tasks/[id]` qua `apps/dashboard/src/app/tasks/[id]/page.tsx` hỗ trợ cả Promise params và object params.
+- Không thêm dependency bên ngoài mới; tái sử dụng React 19, Next.js 15 và `@ai-orchestrator/shared`.
