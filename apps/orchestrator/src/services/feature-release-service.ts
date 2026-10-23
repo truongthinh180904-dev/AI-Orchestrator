@@ -1,10 +1,12 @@
 import crypto from 'node:crypto';
+import path from 'node:path';
 import type Database from 'better-sqlite3';
 import {
   FeatureRepository,
   TaskRepository,
   QualityGateRepository,
   ReportRepository,
+  FeatureReleaseRepository,
 } from '@ai-orchestrator/db';
 import {
   type FeatureComponentTasksResult,
@@ -15,13 +17,22 @@ import {
   type FeatureReleaseCheckRule,
   type FeatureIntegrationTestRecord,
   type CheckReleaseReadinessInput,
+  type CreateFeatureBranchInput,
+  type CreateFeatureBranchResult,
+  type FeatureBranchInfo,
   FeatureComponentTasksResultSchema,
   DefineFeatureTasksInputSchema,
   FeatureReleasePolicyOptionsSchema,
   FeatureReleaseCheckResultSchema,
   CheckReleaseReadinessInputSchema,
+  CreateFeatureBranchInputSchema,
+  CreateFeatureBranchResultSchema,
+  FeatureBranchInfoSchema,
   formatFeatureReleaseCheckMarkdownReport,
   parseCommandLine,
+  validateGitBranchName,
+  gitBranchExists,
+  gitCreateBranch,
   AppError,
   logger as defaultLogger,
   type Logger,
@@ -32,8 +43,10 @@ export interface FeatureReleaseServiceOptions {
   logger?: Logger;
   qualityGateRepo?: QualityGateRepository;
   reportRepo?: ReportRepository;
+  releaseRepo?: FeatureReleaseRepository;
   processAdapter?: ProcessAdapter;
 }
+
 
 /**
  * Service quản lý vòng đời phát hành tính năng (Feature Release - REL-*).
@@ -44,6 +57,7 @@ export class FeatureReleaseService {
   private readonly taskRepo: TaskRepository;
   private readonly qualityGateRepo: QualityGateRepository;
   private readonly reportRepo: ReportRepository;
+  private readonly releaseRepo: FeatureReleaseRepository;
   private readonly processAdapter: ProcessAdapter;
   private readonly logger: Logger;
 
@@ -55,6 +69,7 @@ export class FeatureReleaseService {
     this.taskRepo = new TaskRepository(db);
     this.qualityGateRepo = options?.qualityGateRepo ?? new QualityGateRepository(db);
     this.reportRepo = options?.reportRepo ?? new ReportRepository(db);
+    this.releaseRepo = options?.releaseRepo ?? new FeatureReleaseRepository(db);
     this.processAdapter = options?.processAdapter ?? new ProcessAdapter();
     this.logger = options?.logger ?? defaultLogger;
   }
@@ -626,5 +641,134 @@ export class FeatureReleaseService {
       );
     }
     return result;
+  }
+
+  /**
+   * Tạo branch feature an toàn (không ghi đè) - REL-003.
+   * Tiêu chí nghiệm thu: Branch trùng → lỗi (AppError 'BRANCH_ALREADY_EXISTS').
+   *
+   * Quy tắc an toàn (SKILL-git-release.md):
+   * - Branch format: feature/<feature-id> (hoặc branch_name hợp lệ).
+   * - Branch đã tồn tại (ở Git hoặc DB) -> lỗi, không ghi đè.
+   * - Trước khi tạo branch: git status --porcelain phải rỗng (require_clean).
+   * - Lưu vết vào bảng feature_releases trong DB.
+   */
+  async createFeatureBranch(
+    featureId: string,
+    options?: CreateFeatureBranchInput,
+  ): Promise<CreateFeatureBranchResult> {
+    const feature = this.featureRepo.findById(featureId);
+    if (!feature) {
+      throw new AppError('FEATURE_NOT_FOUND', `Feature '${featureId}' not found`, { featureId });
+    }
+
+    const input = CreateFeatureBranchInputSchema.parse(options ?? {});
+    const repoPath = path.resolve(input.repo_path ?? '.');
+
+    // 1. Kiểm tra tính sẵn sàng phát hành (trừ khi skip_readiness_check = true)
+    if (!input.skip_readiness_check) {
+      await this.assertCanRelease(featureId, { repo_path: repoPath });
+    }
+
+    // 2. Xác định branch name: mặc định 'feature/<feature-id>' theo SKILL-git-release.md
+    const branchName = input.branch_name ?? `feature/${featureId}`;
+    validateGitBranchName(branchName);
+
+    // 3. Kiểm tra DB xem branch đã được đăng ký chưa
+    const existingReleaseByBranch = this.releaseRepo.findByBranch(branchName);
+    if (existingReleaseByBranch) {
+      throw new AppError(
+        'BRANCH_ALREADY_EXISTS',
+        `Feature branch '${branchName}' already exists in database (release ID: ${existingReleaseByBranch.id}). Overwriting is strictly prohibited.`,
+        {
+          featureId,
+          branch: branchName,
+          releaseId: existingReleaseByBranch.id,
+        },
+      );
+    }
+
+    // 4. Gọi gitCreateBranch: kiểm tra repo sạch, kiểm tra branch Git đã tồn tại (Branch trùng -> lỗi),
+    // tạo branch an toàn chỉ định base branch mà không ghi đè.
+    const gitResult = await gitCreateBranch(repoPath, {
+      branchName,
+      baseBranch: input.base_branch,
+      requireClean: input.require_clean,
+      checkout: input.checkout,
+      checkRemote: input.check_remote,
+    });
+
+    // 5. Lưu thông tin release vào database (feature_releases)
+    const releaseId = crypto.randomUUID();
+    const releaseRecord = this.releaseRepo.create({
+      id: releaseId,
+      feature_id: featureId,
+      branch: branchName,
+      base_branch: gitResult.baseBranch,
+      commit_sha: gitResult.commitSha,
+      status: 'BRANCH_CREATED',
+      metadata: {
+        repo_path: repoPath,
+        created_via: 'FeatureReleaseService.createFeatureBranch',
+      },
+    });
+
+    this.logger.info(`Feature branch created safely for '${featureId}': ${branchName}`, {
+      featureId,
+      branch: branchName,
+      baseBranch: gitResult.baseBranch,
+      commitSha: gitResult.commitSha,
+      releaseId: releaseRecord.id,
+    });
+
+    return CreateFeatureBranchResultSchema.parse({
+      release_id: releaseRecord.id,
+      feature_id: feature.id,
+      feature_name: feature.name,
+      branch: branchName,
+      base_branch: gitResult.baseBranch,
+      commit_sha: gitResult.commitSha,
+      created: true,
+      status: 'BRANCH_CREATED',
+      repo_path: repoPath,
+      created_at: releaseRecord.created_at,
+    });
+  }
+
+  /**
+   * Lấy thông tin branch phát hành của feature.
+   */
+  async getFeatureBranchInfo(
+    featureId: string,
+    repoPath?: string,
+  ): Promise<FeatureBranchInfo | null> {
+    const feature = this.featureRepo.findById(featureId);
+    if (!feature) {
+      throw new AppError('FEATURE_NOT_FOUND', `Feature '${featureId}' not found`, { featureId });
+    }
+
+    const release = this.releaseRepo.findByFeatureId(featureId);
+    if (!release) {
+      return null;
+    }
+
+    const resolvedRepo = path.resolve(repoPath ?? '.');
+    let existsLocally: boolean;
+    try {
+      existsLocally = await gitBranchExists(resolvedRepo, release.branch);
+    } catch {
+      existsLocally = false;
+    }
+
+    return FeatureBranchInfoSchema.parse({
+      release_id: release.id,
+      feature_id: featureId,
+      branch: release.branch,
+      base_branch: release.base_branch,
+      commit_sha: release.commit_sha,
+      status: release.status,
+      exists_locally: existsLocally,
+      created_at: release.created_at,
+    });
   }
 }

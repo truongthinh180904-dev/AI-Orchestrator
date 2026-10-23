@@ -1,11 +1,14 @@
 import { z } from 'zod';
-import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
+import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import type { FeatureService } from '../services/feature-service.js';
 import { FeatureQuerySchema, FeatureParamsSchema } from '../types.js';
 import {
   DefineFeatureTasksInputSchema,
   CheckReleaseReadinessInputSchema,
+  CreateFeatureBranchInputSchema,
+  AppError,
 } from '@ai-orchestrator/shared';
+
 
 const ReleaseCheckQuerySchema = z.object({
   execute_integration_tests: z
@@ -128,5 +131,35 @@ export const featureRoutes: FastifyPluginAsync<FeatureRoutesOptions> = async (fa
 
   fastify.post('/features/:id/integration-tests', handleRunIntegrationTests);
   fastify.post('/api/features/:id/integration-tests', handleRunIntegrationTests);
+
+  // POST /features/:id/branch & POST /api/features/:id/branch (REL-003)
+  const handleCreateFeatureBranch = async (request: FastifyRequest, reply: FastifyReply) => {
+    const params = FeatureParamsSchema.parse(request.params);
+    const body = CreateFeatureBranchInputSchema.parse(request.body ?? {});
+    const result = await featureService.createFeatureBranch(params.id, body);
+    return reply.status(201).send({ data: result });
+  };
+
+  fastify.post('/features/:id/branch', handleCreateFeatureBranch);
+  fastify.post('/api/features/:id/branch', handleCreateFeatureBranch);
+
+  // GET /features/:id/branch & GET /api/features/:id/branch (REL-003)
+  const handleGetFeatureBranch = async (request: FastifyRequest) => {
+    const params = FeatureParamsSchema.parse(request.params);
+    const query = request.query as { repo_path?: string } | undefined;
+    const info = await featureService.getFeatureBranchInfo(params.id, query?.repo_path);
+    if (!info) {
+      throw new AppError(
+        'FEATURE_BRANCH_NOT_FOUND',
+        `No branch has been created yet for feature '${params.id}'`,
+        { featureId: params.id },
+      );
+    }
+    return { data: info };
+  };
+
+  fastify.get('/features/:id/branch', handleGetFeatureBranch);
+  fastify.get('/api/features/:id/branch', handleGetFeatureBranch);
 };
+
 

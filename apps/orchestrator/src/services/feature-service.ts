@@ -10,6 +10,9 @@ import {
   type FeatureReleaseCheckResult,
   type CheckReleaseReadinessInput,
   type FeatureIntegrationTestRecord,
+  type CreateFeatureBranchInput,
+  type CreateFeatureBranchResult,
+  type FeatureBranchInfo,
 } from '@ai-orchestrator/shared';
 import { FeatureReleaseService, type FeatureReleaseServiceOptions } from './feature-release-service.js';
 
@@ -87,5 +90,26 @@ export class FeatureService {
   ): Promise<FeatureIntegrationTestRecord[]> {
     return this.releaseService.runIntegrationTests(id, options);
   }
+
+  /**
+   * Tạo branch feature an toàn (không ghi đè) - REL-003.
+   */
+  async createFeatureBranch(
+    id: string,
+    options?: CreateFeatureBranchInput,
+  ): Promise<CreateFeatureBranchResult> {
+    return this.releaseService.createFeatureBranch(id, options);
+  }
+
+  /**
+   * Lấy thông tin branch feature.
+   */
+  async getFeatureBranchInfo(
+    id: string,
+    repoPath?: string,
+  ): Promise<FeatureBranchInfo | null> {
+    return this.releaseService.getFeatureBranchInfo(id, repoPath);
+  }
 }
+
 

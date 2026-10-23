@@ -4,7 +4,20 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AppError } from '../errors.js';
-import { checkRepoClean, getGitDiff, getRepoStatus, isRepoClean, parseGitPorcelain } from '../git.js';
+import {
+  checkRepoClean,
+  getGitDiff,
+  getRepoStatus,
+  isRepoClean,
+  parseGitPorcelain,
+  validateGitBranchName,
+  gitBranchExists,
+  gitListBranches,
+  gitGetCurrentBranch,
+  gitGetRefCommit,
+  gitCreateBranch,
+} from '../git.js';
+
 
 describe('git status & checkRepoClean unit tests', () => {
   describe('parseGitPorcelain', () => {
@@ -258,4 +271,159 @@ describe('git status & checkRepoClean unit tests', () => {
       expect(diff.fileDiffs).toHaveLength(1);
     });
   });
+
+  describe('validateGitBranchName', () => {
+    it('accepts valid branch names', () => {
+      expect(() => validateGitBranchName('main')).not.toThrow();
+      expect(() => validateGitBranchName('dev')).not.toThrow();
+      expect(() => validateGitBranchName('feature/REL-003')).not.toThrow();
+      expect(() => validateGitBranchName('agy/TSK-001-setup-db')).not.toThrow();
+      expect(() => validateGitBranchName('feature/user_auth-v2.0')).not.toThrow();
+    });
+
+    it('rejects invalid branch names with AppError', () => {
+      expect(() => validateGitBranchName('')).toThrow(AppError);
+      expect(() => validateGitBranchName('   ')).toThrow(AppError);
+      expect(() => validateGitBranchName('branch with space')).toThrow(AppError);
+      expect(() => validateGitBranchName('/starts-with-slash')).toThrow(AppError);
+      expect(() => validateGitBranchName('ends-with-slash/')).toThrow(AppError);
+      expect(() => validateGitBranchName('has..double-dot')).toThrow(AppError);
+      expect(() => validateGitBranchName('has//double-slash')).toThrow(AppError);
+      expect(() => validateGitBranchName('ends-with.lock')).toThrow(AppError);
+      expect(() => validateGitBranchName('has~tilde')).toThrow(AppError);
+      expect(() => validateGitBranchName('has^caret')).toThrow(AppError);
+      expect(() => validateGitBranchName('has:colon')).toThrow(AppError);
+      expect(() => validateGitBranchName('has?question')).toThrow(AppError);
+      expect(() => validateGitBranchName('has*star')).toThrow(AppError);
+      expect(() => validateGitBranchName('has[bracket')).toThrow(AppError);
+      expect(() => validateGitBranchName('has\\backslash')).toThrow(AppError);
+      expect(() => validateGitBranchName('has@{brace')).toThrow(AppError);
+      expect(() => validateGitBranchName('@')).toThrow(AppError);
+    });
+  });
+
+  describe('gitCreateBranch & branch operations (REL-003)', () => {
+    let tmpDir: string;
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'git-branch-test-'));
+      execSync('git init -b main', { cwd: tmpDir, stdio: 'ignore' });
+      execSync('git config user.email "test@example.com"', { cwd: tmpDir, stdio: 'ignore' });
+      execSync('git config user.name "Test User"', { cwd: tmpDir, stdio: 'ignore' });
+      fs.writeFileSync(path.join(tmpDir, 'README.md'), '# Initial Repo\n');
+      execSync('git add . && git commit -m "initial commit"', { cwd: tmpDir, stdio: 'ignore' });
+    });
+
+    afterEach(() => {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it('creates a new feature branch safely and returns metadata', async () => {
+      const result = await gitCreateBranch(tmpDir, {
+        branchName: 'feature/REL-003',
+      });
+
+      expect(result.branch).toBe('feature/REL-003');
+      expect(result.baseBranch).toBe('main');
+      expect(result.created).toBe(true);
+      expect(result.commitSha).toHaveLength(40);
+
+      // Verify branch exists in git
+      const exists = await gitBranchExists(tmpDir, 'feature/REL-003');
+      expect(exists).toBe(true);
+
+      const branches = await gitListBranches(tmpDir);
+      expect(branches).toContain('feature/REL-003');
+      expect(branches).toContain('main');
+
+      // Current branch should still be main (since checkout was not requested)
+      const current = await gitGetCurrentBranch(tmpDir);
+      expect(current).toBe('main');
+    });
+
+    it('switches to created branch when checkout: true is specified', async () => {
+      const result = await gitCreateBranch(tmpDir, {
+        branchName: 'feature/checkout-test',
+        checkout: true,
+      });
+
+      expect(result.created).toBe(true);
+      const current = await gitGetCurrentBranch(tmpDir);
+      expect(current).toBe('feature/checkout-test');
+    });
+
+    it('fails with BRANCH_ALREADY_EXISTS when branch already exists (Branch trùng -> lỗi)', async () => {
+      // Create first time
+      await gitCreateBranch(tmpDir, {
+        branchName: 'feature/duplicate',
+      });
+
+      // Try to create again -> must throw BRANCH_ALREADY_EXISTS
+      await expect(
+        gitCreateBranch(tmpDir, {
+          branchName: 'feature/duplicate',
+        }),
+      ).rejects.toThrow(AppError);
+
+      try {
+        await gitCreateBranch(tmpDir, {
+          branchName: 'feature/duplicate',
+        });
+      } catch (err: unknown) {
+        expect(err).toBeInstanceOf(AppError);
+        expect((err as AppError).code).toBe('BRANCH_ALREADY_EXISTS');
+      }
+    });
+
+    it('rejects branch creation if working tree is dirty (requireClean: true)', async () => {
+      // Make repo dirty
+      fs.writeFileSync(path.join(tmpDir, 'dirty.txt'), 'uncommitted changes');
+
+      await expect(
+        gitCreateBranch(tmpDir, {
+          branchName: 'feature/dirty-test',
+          requireClean: true,
+        }),
+      ).rejects.toThrow(AppError);
+
+      try {
+        await gitCreateBranch(tmpDir, {
+          branchName: 'feature/dirty-test',
+          requireClean: true,
+        });
+      } catch (err: unknown) {
+        expect(err).toBeInstanceOf(AppError);
+        expect((err as AppError).code).toBe('REPO_DIRTY');
+      }
+    });
+
+    it('rejects branch creation with invalid base branch (BASE_REF_NOT_FOUND)', async () => {
+      await expect(
+        gitCreateBranch(tmpDir, {
+          branchName: 'feature/invalid-base',
+          baseBranch: 'nonexistent-branch-123',
+        }),
+      ).rejects.toThrow(AppError);
+
+      try {
+        await gitCreateBranch(tmpDir, {
+          branchName: 'feature/invalid-base',
+          baseBranch: 'nonexistent-branch-123',
+        });
+      } catch (err: unknown) {
+        expect(err).toBeInstanceOf(AppError);
+        expect((err as AppError).code).toBe('BASE_REF_NOT_FOUND');
+      }
+    });
+
+    it('resolves commit SHA with gitGetRefCommit', async () => {
+      const sha = await gitGetRefCommit(tmpDir, 'main');
+      expect(sha).not.toBeNull();
+      expect(sha).toHaveLength(40);
+
+      const invalidSha = await gitGetRefCommit(tmpDir, 'invalid-ref-xyz');
+      expect(invalidSha).toBeNull();
+    });
+  });
 });
+

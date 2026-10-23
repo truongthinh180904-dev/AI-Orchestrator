@@ -53,6 +53,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
         case 'QUALITY_RECORD_NOT_FOUND':
         case 'REPAIR_LOOP_NOT_FOUND':
         case 'QUALITY_GATE_NOT_FOUND':
+        case 'FEATURE_BRANCH_NOT_FOUND':
           statusCode = 404;
           break;
         case 'FEATURE_RELEASE_BLOCKED':
@@ -67,6 +68,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
         case 'AGENT_LOCK_HELD':
         case 'AGENT_BUSY':
         case 'SCHEDULER_LOCKED':
+        case 'BRANCH_ALREADY_EXISTS':
+        case 'REPO_DIRTY':
           statusCode = 409;
           break;
         case 'PLAN_SPAWN_ERROR':
@@ -105,6 +108,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
         case 'INVALID_PACKAGE_JSON':
         case 'PATH_NOT_FOUND':
         case 'NOT_A_DIRECTORY':
+        case 'INVALID_BRANCH_NAME':
+        case 'BASE_REF_NOT_FOUND':
           statusCode = 400;
           break;
         default:

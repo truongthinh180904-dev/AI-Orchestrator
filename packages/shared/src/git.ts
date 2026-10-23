@@ -585,3 +585,312 @@ export async function getGitDiff(
   };
 }
 
+/**
+ * Validates a git branch name according to git check-ref-format rules.
+ * Throws AppError('INVALID_BRANCH_NAME') if invalid.
+ */
+export function validateGitBranchName(branchName: string): void {
+  if (!branchName || typeof branchName !== 'string') {
+    throw new AppError('INVALID_BRANCH_NAME', 'Branch name cannot be empty', { branchName });
+  }
+
+  const trimmed = branchName.trim();
+  if (trimmed !== branchName) {
+    throw new AppError(
+      'INVALID_BRANCH_NAME',
+      'Branch name cannot have leading or trailing whitespace',
+      { branchName },
+    );
+  }
+
+  if (branchName.length === 0 || branchName.length > 255) {
+    throw new AppError(
+      'INVALID_BRANCH_NAME',
+      `Branch name length (${branchName.length}) exceeds 255 characters`,
+      { branchName },
+    );
+  }
+
+  // Ref format rules:
+  // Cannot begin or end with a slash '/'
+  // Cannot end with '.lock'
+  // Cannot contain '..'
+  // Cannot contain consecutive slashes '//'
+  // Cannot contain '@{'
+  // Cannot be '@'
+  // Cannot contain ASCII control characters, spaces, or characters ~ ^ : ? * [ \
+  if (
+    branchName.startsWith('/') ||
+    branchName.endsWith('/') ||
+    branchName.startsWith('.') ||
+    branchName.endsWith('.') ||
+    branchName.endsWith('.lock') ||
+    branchName.includes('..') ||
+    branchName.includes('//') ||
+    branchName.includes('@{') ||
+    branchName === '@' ||
+    // eslint-disable-next-line no-control-regex
+    /[\x00-\x20\x7f~^:?*[\\\]]/.test(branchName)
+  ) {
+    throw new AppError(
+      'INVALID_BRANCH_NAME',
+      `Invalid git branch name: "${branchName}". Branch names cannot contain special characters or spaces.`,
+      { branchName },
+    );
+  }
+}
+
+/**
+ * Checks whether a branch exists in the repository.
+ */
+export async function gitBranchExists(
+  repoPath: string,
+  branchName: string,
+  options?: { checkRemote?: boolean; remoteName?: string },
+): Promise<boolean> {
+  const localCheck = await runGitCommand(
+    ['show-ref', '--verify', `refs/heads/${branchName}`],
+    repoPath,
+  );
+  if (localCheck.exitCode === 0) {
+    return true;
+  }
+
+  if (options?.checkRemote) {
+    const remote = options.remoteName ?? 'origin';
+    const remoteCheck = await runGitCommand(
+      ['show-ref', '--verify', `refs/remotes/${remote}/${branchName}`],
+      repoPath,
+    );
+    if (remoteCheck.exitCode === 0) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Lists branch names in the repository.
+ */
+export async function gitListBranches(
+  repoPath: string,
+  options?: { remote?: boolean },
+): Promise<string[]> {
+  const args = ['branch', '--list', '--format=%(refname:short)'];
+  if (options?.remote) {
+    args.push('-a');
+  }
+
+  const { stdout, stderr, exitCode } = await runGitCommand(args, repoPath);
+  if (exitCode !== 0) {
+    throw new AppError('GIT_COMMAND_FAILED', `Failed to list git branches: ${stderr.trim()}`, {
+      repoPath,
+      stderr,
+      exitCode,
+    });
+  }
+
+  return stdout
+    .split(/\r?\n/)
+    .map((b) => b.trim())
+    .filter((b) => b.length > 0);
+}
+
+/**
+ * Returns the name of the currently checked out branch, or null if detached.
+ */
+export async function gitGetCurrentBranch(repoPath: string): Promise<string | null> {
+  const { stdout, exitCode } = await runGitCommand(
+    ['rev-parse', '--abbrev-ref', 'HEAD'],
+    repoPath,
+  );
+  if (exitCode !== 0) {
+    return null;
+  }
+  const branch = stdout.trim();
+  return branch && branch !== 'HEAD' ? branch : null;
+}
+
+/**
+ * Returns the commit SHA for a given git reference, or null if it cannot be resolved.
+ */
+export async function gitGetRefCommit(repoPath: string, ref: string): Promise<string | null> {
+  const { stdout, exitCode } = await runGitCommand(
+    ['rev-parse', '--verify', `${ref}^{commit}`],
+    repoPath,
+  );
+  if (exitCode !== 0) {
+    return null;
+  }
+  const sha = stdout.trim();
+  return sha.length > 0 ? sha : null;
+}
+
+/**
+ * Automatically determines a sensible default base branch for a new branch.
+ * Checks 'main' -> 'dev' -> 'master' -> current branch -> 'HEAD'.
+ */
+export async function gitGetDefaultBaseBranch(repoPath: string): Promise<string> {
+  if (await gitBranchExists(repoPath, 'main')) {
+    return 'main';
+  }
+  if (await gitBranchExists(repoPath, 'dev')) {
+    return 'dev';
+  }
+  if (await gitBranchExists(repoPath, 'master')) {
+    return 'master';
+  }
+  const current = await gitGetCurrentBranch(repoPath);
+  if (current) {
+    return current;
+  }
+  return 'HEAD';
+}
+
+export interface GitCreateBranchOptions {
+  branchName: string;
+  baseBranch?: string;
+  requireClean?: boolean;
+  checkout?: boolean;
+  checkRemote?: boolean;
+  remoteName?: string;
+}
+
+export interface GitCreateBranchResult {
+  branch: string;
+  baseBranch: string;
+  commitSha: string;
+  repoPath: string;
+  created: boolean;
+  createdAt: string;
+}
+
+/**
+ * Creates a git branch safely without overwriting existing branches.
+ * Throws AppError('BRANCH_ALREADY_EXISTS') if branch already exists.
+ * Throws AppError('REPO_DIRTY') if working tree has uncommitted changes and requireClean is true.
+ * Throws AppError('INVALID_BRANCH_NAME') if branch name format is invalid.
+ */
+export async function gitCreateBranch(
+  repoPath: string,
+  options: GitCreateBranchOptions,
+): Promise<GitCreateBranchResult> {
+  if (!fs.existsSync(repoPath)) {
+    throw new AppError('PATH_NOT_FOUND', `Repository path does not exist: ${repoPath}`, {
+      repoPath,
+    });
+  }
+
+  const stat = fs.statSync(repoPath);
+  if (!stat.isDirectory()) {
+    throw new AppError('NOT_A_DIRECTORY', `Repository path is not a directory: ${repoPath}`, {
+      repoPath,
+    });
+  }
+
+  const { branchName } = options;
+  validateGitBranchName(branchName);
+
+  // 1. Verify working directory cleanliness
+  if (options.requireClean !== false) {
+    await checkRepoClean(repoPath);
+  }
+
+  // 2. Safe check: Branch trùng -> lỗi (Do NOT overwrite)
+  const alreadyExists = await gitBranchExists(repoPath, branchName, {
+    checkRemote: options.checkRemote,
+    remoteName: options.remoteName,
+  });
+
+  if (alreadyExists) {
+    throw new AppError(
+      'BRANCH_ALREADY_EXISTS',
+      `Git branch '${branchName}' already exists in repository '${repoPath}'. Overwriting existing branch is strictly prohibited.`,
+      {
+        repoPath,
+        branch: branchName,
+      },
+    );
+  }
+
+  // 3. Resolve base branch
+  const baseBranch = options.baseBranch ?? (await gitGetDefaultBaseBranch(repoPath));
+  const baseSha = await gitGetRefCommit(repoPath, baseBranch);
+  if (!baseSha) {
+    throw new AppError(
+      'BASE_REF_NOT_FOUND',
+      `Base reference '${baseBranch}' could not be resolved to a commit in '${repoPath}'`,
+      {
+        repoPath,
+        baseBranch,
+      },
+    );
+  }
+
+  // 4. Create branch safely (git branch <branchName> <baseBranch>)
+  const { stderr, exitCode } = await runGitCommand(
+    ['branch', branchName, baseBranch],
+    repoPath,
+  );
+
+  if (exitCode !== 0) {
+    if (stderr.toLowerCase().includes('already exists')) {
+      throw new AppError(
+        'BRANCH_ALREADY_EXISTS',
+        `Git branch '${branchName}' already exists in repository '${repoPath}'. Overwriting existing branch is strictly prohibited.`,
+        {
+          repoPath,
+          branch: branchName,
+          stderr,
+        },
+      );
+    }
+    throw new AppError(
+      'GIT_COMMAND_FAILED',
+      `Failed to create git branch '${branchName}': ${stderr.trim() || `Exit code ${exitCode}`}`,
+      {
+        repoPath,
+        branchName,
+        baseBranch,
+        stderr,
+        exitCode,
+      },
+    );
+  }
+
+  // 5. Optionally checkout the newly created branch
+  if (options.checkout) {
+    const { stderr: coStderr, exitCode: coExit } = await runGitCommand(
+      ['checkout', branchName],
+      repoPath,
+    );
+    if (coExit !== 0) {
+      throw new AppError(
+        'GIT_COMMAND_FAILED',
+        `Branch '${branchName}' was created but checkout failed: ${coStderr.trim()}`,
+        {
+          repoPath,
+          branchName,
+          stderr: coStderr,
+          exitCode: coExit,
+        },
+      );
+    }
+  }
+
+  // 6. Obtain commit SHA of the created branch
+  const commitSha = (await gitGetRefCommit(repoPath, branchName)) ?? baseSha;
+  const createdAt = new Date().toISOString();
+
+  return {
+    branch: branchName,
+    baseBranch,
+    commitSha,
+    repoPath,
+    created: true,
+    createdAt,
+  };
+}
+
+

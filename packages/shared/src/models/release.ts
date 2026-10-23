@@ -203,3 +203,113 @@ export function formatFeatureReleaseCheckMarkdownReport(result: FeatureReleaseCh
 
   return lines.join('\n');
 }
+
+/**
+ * Trạng thái của một đợt phát hành feature (Release lifecycle).
+ */
+export const FeatureReleaseStatusSchema = z.enum([
+  'BRANCH_CREATED',
+  'COMMITTED',
+  'PUSHED',
+  'PR_CREATED',
+  'READY_FOR_REVIEW',
+  'MERGED',
+  'CLOSED',
+]);
+
+export type FeatureReleaseStatus = z.infer<typeof FeatureReleaseStatusSchema>;
+
+/**
+ * Bản ghi phát hành feature lưu trong DB (Migration 012).
+ */
+export const FeatureReleaseSchema = z.object({
+  id: z.string().min(1),
+  feature_id: z.string().min(1),
+  branch: z.string().min(1),
+  base_branch: z.string().min(1),
+  commit_sha: z.string().nullable().default(null),
+  pr_url: z.string().nullable().default(null),
+  status: FeatureReleaseStatusSchema.default('BRANCH_CREATED'),
+  metadata: z.record(z.string(), z.unknown()).default({}),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+
+export type FeatureRelease = z.infer<typeof FeatureReleaseSchema>;
+
+export const CreateFeatureReleaseInputSchema = z.object({
+  id: z.string().optional(),
+  feature_id: z.string().min(1),
+  branch: z.string().min(1),
+  base_branch: z.string().min(1),
+  commit_sha: z.string().nullable().optional(),
+  pr_url: z.string().nullable().optional(),
+  status: FeatureReleaseStatusSchema.optional().default('BRANCH_CREATED'),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+  created_at: z.string().optional(),
+  updated_at: z.string().optional(),
+});
+
+export type CreateFeatureReleaseInput = z.input<typeof CreateFeatureReleaseInputSchema>;
+
+export const UpdateFeatureReleaseInputSchema = z.object({
+  branch: z.string().min(1).optional(),
+  base_branch: z.string().min(1).optional(),
+  commit_sha: z.string().nullable().optional(),
+  pr_url: z.string().nullable().optional(),
+  status: FeatureReleaseStatusSchema.optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+  updated_at: z.string().optional(),
+});
+
+export type UpdateFeatureReleaseInput = z.input<typeof UpdateFeatureReleaseInputSchema>;
+
+/**
+ * Tham số đầu vào để tạo branch feature an toàn (REL-003).
+ */
+export const CreateFeatureBranchInputSchema = z.object({
+  branch_name: z.string().min(1).optional(),
+  base_branch: z.string().min(1).optional(),
+  repo_path: z.string().optional(),
+  require_clean: z.boolean().default(true),
+  skip_readiness_check: z.boolean().default(false),
+  checkout: z.boolean().default(false),
+  check_remote: z.boolean().default(false),
+});
+
+export type CreateFeatureBranchInput = z.input<typeof CreateFeatureBranchInputSchema>;
+
+/**
+ * Kết quả tạo branch feature an toàn (REL-003).
+ */
+export const CreateFeatureBranchResultSchema = z.object({
+  release_id: z.string().min(1),
+  feature_id: z.string().min(1),
+  feature_name: z.string().min(1),
+  branch: z.string().min(1),
+  base_branch: z.string().min(1),
+  commit_sha: z.string().min(1),
+  created: z.boolean(),
+  status: FeatureReleaseStatusSchema,
+  repo_path: z.string(),
+  created_at: z.string(),
+});
+
+export type CreateFeatureBranchResult = z.infer<typeof CreateFeatureBranchResultSchema>;
+
+/**
+ * Thông tin branch của feature.
+ */
+export const FeatureBranchInfoSchema = z.object({
+  release_id: z.string().min(1),
+  feature_id: z.string().min(1),
+  branch: z.string().min(1),
+  base_branch: z.string().min(1),
+  commit_sha: z.string().nullable(),
+  status: FeatureReleaseStatusSchema,
+  exists_locally: z.boolean(),
+  created_at: z.string(),
+});
+
+export type FeatureBranchInfo = z.infer<typeof FeatureBranchInfoSchema>;
+

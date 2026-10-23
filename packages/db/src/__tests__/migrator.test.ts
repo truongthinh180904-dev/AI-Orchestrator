@@ -23,9 +23,10 @@ describe('Migration Runner', () => {
       expect(firstRun).toContain('009_security_checks.sql');
       expect(firstRun).toContain('010_repair_loops.sql');
       expect(firstRun).toContain('011_quality_gates.sql');
+      expect(firstRun).toContain('012_feature_releases.sql');
 
       const appliedAfterFirst = getAppliedMigrations(db);
-      expect(appliedAfterFirst.length).toBe(11);
+      expect(appliedAfterFirst.length).toBe(12);
       expect(appliedAfterFirst[0]?.name).toBe('001_initial_schema.sql');
       expect(appliedAfterFirst[1]?.name).toBe('002_agent_lock.sql');
       expect(appliedAfterFirst[2]?.name).toBe('003_checkpoints.sql');
@@ -37,6 +38,7 @@ describe('Migration Runner', () => {
       expect(appliedAfterFirst[8]?.name).toBe('009_security_checks.sql');
       expect(appliedAfterFirst[9]?.name).toBe('010_repair_loops.sql');
       expect(appliedAfterFirst[10]?.name).toBe('011_quality_gates.sql');
+      expect(appliedAfterFirst[11]?.name).toBe('012_feature_releases.sql');
       expect(appliedAfterFirst[0]?.applied_at).toBeTruthy();
       expect(appliedAfterFirst[1]?.applied_at).toBeTruthy();
       expect(appliedAfterFirst[2]?.applied_at).toBeTruthy();
@@ -48,13 +50,14 @@ describe('Migration Runner', () => {
       expect(appliedAfterFirst[8]?.applied_at).toBeTruthy();
       expect(appliedAfterFirst[9]?.applied_at).toBeTruthy();
       expect(appliedAfterFirst[10]?.applied_at).toBeTruthy();
+      expect(appliedAfterFirst[11]?.applied_at).toBeTruthy();
 
       // Second run: idempotent, returns empty array, no error
       const secondRun = runMigrations(db);
       expect(secondRun).toEqual([]);
 
       const appliedAfterSecond = getAppliedMigrations(db);
-      expect(appliedAfterSecond.length).toBe(11);
+      expect(appliedAfterSecond.length).toBe(12);
     } finally {
       db.close();
     }

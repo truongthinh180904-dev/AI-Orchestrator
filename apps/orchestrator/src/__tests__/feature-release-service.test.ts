@@ -23,13 +23,42 @@ describe('FeatureReleaseService', () => {
   let db: Database.Database;
   let featureRepo: FeatureRepository;
   let taskRepo: TaskRepository;
+  let qgRepo: QualityGateRepository;
   let releaseService: FeatureReleaseService;
+
+  function seedQGPass(taskId: string) {
+    return qgRepo.create({
+      id: `qg-pass-${taskId}`,
+      task_id: taskId,
+      run_id: null,
+      repo_path: '.',
+      passed: true,
+      status: 'PASSED',
+      summary: 'All checks passed',
+      policy: QualityGatePolicySchema.parse({}),
+      rule_evaluations: [],
+      evidence_summary: QualityGateEvidenceSummarySchema.parse({
+        cliExitCode: 0,
+        cliStatus: 'SUCCESS',
+        cliSucceeded: true,
+        totalCommands: 1,
+        passedCommands: 1,
+      }),
+      command_records: [],
+      scope_result: null,
+      review_result: null,
+      security_result: null,
+      duration_ms: 100,
+      evaluated_at: new Date().toISOString(),
+    });
+  }
 
   beforeEach(() => {
     db = createDatabase(':memory:');
     runMigrations(db);
     featureRepo = new FeatureRepository(db);
     taskRepo = new TaskRepository(db);
+    qgRepo = new QualityGateRepository(db);
     releaseService = new FeatureReleaseService(db);
   });
 
@@ -178,40 +207,12 @@ describe('FeatureReleaseService', () => {
   });
 
   describe('REL-002: Kiểm tra feature đủ task + integration test (Thiếu task -> Chặn)', () => {
-    let qgRepo: QualityGateRepository;
     let reportRepo: ReportRepository;
 
     beforeEach(() => {
-      qgRepo = new QualityGateRepository(db);
       reportRepo = new ReportRepository(db);
     });
 
-    function seedQGPass(taskId: string) {
-      return qgRepo.create({
-        id: `qg-pass-${taskId}`,
-        task_id: taskId,
-        run_id: null,
-        repo_path: '.',
-        passed: true,
-        status: 'PASSED',
-        summary: 'All checks passed',
-        policy: QualityGatePolicySchema.parse({}),
-        rule_evaluations: [],
-        evidence_summary: QualityGateEvidenceSummarySchema.parse({
-          cliExitCode: 0,
-          cliStatus: 'SUCCESS',
-          cliSucceeded: true,
-          totalCommands: 1,
-          passedCommands: 1,
-        }),
-        command_records: [],
-        scope_result: null,
-        review_result: null,
-        security_result: null,
-        duration_ms: 10,
-        evaluated_at: new Date().toISOString(),
-      });
-    }
 
     function seedQGFail(taskId: string) {
       return qgRepo.create({
@@ -515,4 +516,206 @@ describe('FeatureReleaseService', () => {
       expect(integrationReports[0]?.content).toContain('FEAT-REPORT-CHECK');
     });
   });
+
+  describe('Tạo branch feature an toàn (REL-003)', () => {
+    let tmpGitDir: string;
+
+    beforeEach(async () => {
+      const { execSync } = await import('node:child_process');
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+      const os = await import('node:os');
+
+      tmpGitDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rel003-git-test-'));
+      execSync('git init -b main', { cwd: tmpGitDir, stdio: 'ignore' });
+      execSync('git config user.email "test@example.com"', { cwd: tmpGitDir, stdio: 'ignore' });
+      execSync('git config user.name "Test User"', { cwd: tmpGitDir, stdio: 'ignore' });
+      fs.writeFileSync(path.join(tmpGitDir, 'README.md'), '# Test Project\n');
+      execSync('git add . && git commit -m "initial commit"', { cwd: tmpGitDir, stdio: 'ignore' });
+    });
+
+    afterEach(async () => {
+      const fs = await import('node:fs');
+      if (tmpGitDir) {
+        fs.rmSync(tmpGitDir, { recursive: true, force: true });
+      }
+    });
+
+    it('Tạo branch feature thành công với format feature/<feature-id> và lưu vào DB', async () => {
+      featureRepo.create({
+        id: 'FEAT-REL-003',
+        name: 'Safe Feature Branch',
+        required_tasks: ['TASK-SAFE-1'],
+      });
+
+      taskRepo.create({
+        id: 'TASK-SAFE-1',
+        feature_id: 'FEAT-REL-003',
+        title: 'Safe Task',
+        status: 'DONE',
+      });
+
+      seedQGPass('TASK-SAFE-1');
+
+      const result = await releaseService.createFeatureBranch('FEAT-REL-003', {
+        repo_path: tmpGitDir,
+      });
+
+      expect(result.feature_id).toBe('FEAT-REL-003');
+      expect(result.branch).toBe('feature/FEAT-REL-003');
+      expect(result.base_branch).toBe('main');
+      expect(result.created).toBe(true);
+      expect(result.commit_sha).toHaveLength(40);
+      expect(result.status).toBe('BRANCH_CREATED');
+
+      // Kiểm tra qua getFeatureBranchInfo
+      const branchInfo = await releaseService.getFeatureBranchInfo('FEAT-REL-003', tmpGitDir);
+      expect(branchInfo).not.toBeNull();
+      expect(branchInfo?.branch).toBe('feature/FEAT-REL-003');
+      expect(branchInfo?.exists_locally).toBe(true);
+    });
+
+    it('Nghiệm thu: Branch trùng -> ném lỗi BRANCH_ALREADY_EXISTS, không ghi đè', async () => {
+      featureRepo.create({
+        id: 'FEAT-DUP',
+        name: 'Duplicate Feature Branch',
+        required_tasks: ['TASK-DUP'],
+      });
+
+      taskRepo.create({
+        id: 'TASK-DUP',
+        feature_id: 'FEAT-DUP',
+        title: 'Task Dup',
+        status: 'DONE',
+      });
+
+      seedQGPass('TASK-DUP');
+
+      // Tạo lần đầu -> thành công
+      await releaseService.createFeatureBranch('FEAT-DUP', {
+        repo_path: tmpGitDir,
+      });
+
+      // Tạo lại cùng branch -> ném lỗi BRANCH_ALREADY_EXISTS
+      await expect(
+        releaseService.createFeatureBranch('FEAT-DUP', {
+          repo_path: tmpGitDir,
+        }),
+      ).rejects.toThrow(AppError);
+
+      try {
+        await releaseService.createFeatureBranch('FEAT-DUP', {
+          repo_path: tmpGitDir,
+        });
+      } catch (err: unknown) {
+        expect(err).toBeInstanceOf(AppError);
+        expect((err as AppError).code).toBe('BRANCH_ALREADY_EXISTS');
+      }
+    });
+
+    it('Chặn tạo branch khi feature chưa sẵn sàng release (thiếu task hoặc task chưa DONE)', async () => {
+      featureRepo.create({
+        id: 'FEAT-NOT-READY',
+        name: 'Not Ready Feature',
+        required_tasks: ['TASK-PENDING'],
+      });
+
+      taskRepo.create({
+        id: 'TASK-PENDING',
+        feature_id: 'FEAT-NOT-READY',
+        title: 'Pending Task',
+        status: 'RUNNING', // Chưa DONE
+      });
+
+      await expect(
+        releaseService.createFeatureBranch('FEAT-NOT-READY', {
+          repo_path: tmpGitDir,
+        }),
+      ).rejects.toThrow(AppError);
+
+      try {
+        await releaseService.createFeatureBranch('FEAT-NOT-READY', {
+          repo_path: tmpGitDir,
+        });
+      } catch (err: unknown) {
+        expect(err).toBeInstanceOf(AppError);
+        expect((err as AppError).code).toBe('FEATURE_RELEASE_BLOCKED');
+      }
+
+      // Có thể bỏ qua kiểm tra readiness nếu truyền skip_readiness_check: true
+      const forceResult = await releaseService.createFeatureBranch('FEAT-NOT-READY', {
+        repo_path: tmpGitDir,
+        skip_readiness_check: true,
+      });
+      expect(forceResult.created).toBe(true);
+      expect(forceResult.branch).toBe('feature/FEAT-NOT-READY');
+    });
+
+    it('Chặn tạo branch khi repo dirty nếu require_clean: true', async () => {
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+
+      featureRepo.create({
+        id: 'FEAT-DIRTY',
+        name: 'Dirty Repo Feature',
+        required_tasks: ['TASK-DIRTY-1'],
+      });
+
+      taskRepo.create({
+        id: 'TASK-DIRTY-1',
+        feature_id: 'FEAT-DIRTY',
+        title: 'Task Dirty',
+        status: 'DONE',
+      });
+      seedQGPass('TASK-DIRTY-1');
+
+      // Tạo thay đổi uncommitted
+      fs.writeFileSync(path.join(tmpGitDir, 'uncommitted.txt'), 'dirty content');
+
+      await expect(
+        releaseService.createFeatureBranch('FEAT-DIRTY', {
+          repo_path: tmpGitDir,
+          require_clean: true,
+        }),
+      ).rejects.toThrow(AppError);
+
+      try {
+        await releaseService.createFeatureBranch('FEAT-DIRTY', {
+          repo_path: tmpGitDir,
+          require_clean: true,
+        });
+      } catch (err: unknown) {
+        expect(err).toBeInstanceOf(AppError);
+        expect((err as AppError).code).toBe('REPO_DIRTY');
+      }
+    });
+
+    it('Từ chối tên branch không hợp lệ (INVALID_BRANCH_NAME)', async () => {
+      featureRepo.create({
+        id: 'FEAT-BAD-NAME',
+        name: 'Bad Branch Name Feature',
+        required_tasks: [],
+      });
+
+      await expect(
+        releaseService.createFeatureBranch('FEAT-BAD-NAME', {
+          repo_path: tmpGitDir,
+          branch_name: 'feature/bad name with spaces',
+          skip_readiness_check: true,
+        }),
+      ).rejects.toThrow(AppError);
+
+      try {
+        await releaseService.createFeatureBranch('FEAT-BAD-NAME', {
+          repo_path: tmpGitDir,
+          branch_name: 'feature/bad name with spaces',
+          skip_readiness_check: true,
+        });
+      } catch (err: unknown) {
+        expect(err).toBeInstanceOf(AppError);
+        expect((err as AppError).code).toBe('INVALID_BRANCH_NAME');
+      }
+    });
+  });
 });
+

@@ -5,6 +5,7 @@ import {
   type UpdateFeatureInput,
   type FeatureFilter,
   type TaskWithDependencies,
+  type FeatureRelease,
   FeatureSchema,
   CreateFeatureInputSchema,
   UpdateFeatureInputSchema,
@@ -12,6 +13,7 @@ import {
   AppError,
 } from '@ai-orchestrator/shared';
 import { TaskRepository } from './task-repository.js';
+import { FeatureReleaseRepository } from './feature-release-repository.js';
 
 function rowToFeature(row: Record<string, unknown>): Feature {
   let required_tasks: unknown = [];
@@ -363,4 +365,13 @@ export class FeatureRepository {
       )
       .run(now, featureId, ...taskIds);
   }
+
+  /**
+   * Lấy bản ghi release mới nhất của feature nếu có.
+   */
+  getRelease(featureId: string): FeatureRelease | null {
+    const releaseRepo = new FeatureReleaseRepository(this.db);
+    return releaseRepo.findByFeatureId(featureId);
+  }
 }
+

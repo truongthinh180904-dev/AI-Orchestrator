@@ -766,3 +766,14 @@
 - Phương thức `assertCanRelease` ném `AppError('FEATURE_RELEASE_BLOCKED')` tương ứng mã lỗi HTTP 422 trên REST API khi có cờ `assert: true`.
 - Tách bạch `runIntegrationTests` chạy tuần tự qua `ProcessAdapter.spawn` an toàn (`shell: false`, có timeout).
 - Bổ sung `findByKind` và `findAll` trên `ReportRepository` để lưu trữ và truy vấn báo cáo `feature_release_check` và `feature_integration_test`.
+
+## REL-003: Tạo branch feature an toàn (không ghi đè) — Branch trùng → lỗi
+- Định dạng branch feature mặc định tuân thủ `SKILL-git-release.md`: `feature/<feature-id>`, kiểm tra hợp lệ theo git check-ref-format.
+- Nghiệm thu cốt lõi: Kiểm tra trùng branch cả ở cấp độ Git (`gitBranchExists`) và DB (`feature_releases`); nếu branch đã tồn tại, lập tức ném `AppError('BRANCH_ALREADY_EXISTS')`, tuyệt đối không dùng cờ ghi đè (`-B` hoặc `--force`).
+- Kiểm tra an toàn trước khi tạo branch: yêu cầu working tree sạch (`checkRepoClean`, ném `REPO_DIRTY` nếu bẩn) theo quy định an toàn tại `FND-006`.
+- Tự động xác định base branch (`main` -> `dev` -> `master` -> `HEAD`) hoặc dùng `base_branch` tùy chọn, kiểm tra base ref commit tồn tại (`BASE_REF_NOT_FOUND`).
+- Thêm Migration 012 tạo bảng `feature_releases` lưu vết `branch`, `base_branch`, `commit_sha`, `pr_url`, `status`, ràng buộc `UNIQUE(branch)`.
+- Tích hợp điều kiện phát hành (REL-002): mặc định kiểm tra `assertCanRelease` trước khi tạo branch, hỗ trợ `skip_readiness_check: true` cho trường hợp chủ động.
+- REST API: Thêm `POST /features/:id/branch` (HTTP 201 tạo branch, 409 khi branch trùng, 422 khi bị chặn release) và `GET /features/:id/branch` (HTTP 200/404).
+- Không thêm dependency bên ngoài mới; tái sử dụng các tiện ích Git an toàn qua `child_process.spawn`.
+

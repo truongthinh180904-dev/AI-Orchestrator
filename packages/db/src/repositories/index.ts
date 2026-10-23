@@ -12,3 +12,4 @@ export * from './review-finding-repository.js';
 export * from './security-check-repository.js';
 export * from './repair-loop-repository.js';
 export * from './quality-gate-repository.js';
+export * from './feature-release-repository.js';
