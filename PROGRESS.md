@@ -31,7 +31,7 @@ Trạng thái: `TODO` | `IN_PROGRESS` | `DONE` | `FAILED` | `BLOCKED`
 | ORC-004 | DONE | 1 | 8103fac | Hoàn thành lúc 2026-10-23 06:43 +07:00 |
 | ORC-005 | DONE | 1 | 88d2ef3 | Hoàn thành lúc 2026-10-23 07:07 +07:00 |
 | ORC-006 | DONE | 1 | 0ba08b8 | Hoàn thành lúc 2026-10-23 08:24 +07:00 |
-| ORC-007 | TODO | 0 | | |
+| ORC-007 | DONE | 1 | a617343 | Hoàn thành lúc 2026-10-23 08:44 +07:00 |
 | ORC-008 | TODO | 0 | | |
 | QLT-001 | TODO | 0 | | |
 | QLT-002 | TODO | 0 | | |
