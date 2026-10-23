@@ -15,6 +15,10 @@ import {
   type FeatureBranchInfo,
   type CommitFeatureReleaseInput,
   type CommitFeatureReleaseResult,
+  type PushFeatureReleaseInput,
+  type PushFeatureReleaseResult,
+  type ConfirmRemoteBranchInput,
+  type ConfirmRemoteBranchResult,
   type FeatureRelease,
 } from '@ai-orchestrator/shared';
 import { FeatureReleaseService, type FeatureReleaseServiceOptions } from './feature-release-service.js';
@@ -129,6 +133,26 @@ export class FeatureService {
    */
   getFeatureRelease(id: string): FeatureRelease | null {
     return this.releaseService.getFeatureRelease(id);
+  }
+
+  /**
+   * Push feature branch lên remote repository và xác nhận remote branch qua git ls-remote (REL-005).
+   */
+  async pushFeatureRelease(
+    id: string,
+    input?: PushFeatureReleaseInput,
+  ): Promise<PushFeatureReleaseResult> {
+    return this.releaseService.pushFeatureRelease(id, input);
+  }
+
+  /**
+   * Xác nhận remote branch cho feature qua git ls-remote (REL-005).
+   */
+  async confirmRemoteBranch(
+    id: string,
+    input?: ConfirmRemoteBranchInput,
+  ): Promise<ConfirmRemoteBranchResult> {
+    return this.releaseService.confirmRemoteBranch(id, input);
   }
 }
 

@@ -22,6 +22,10 @@ import {
   type FeatureBranchInfo,
   type CommitFeatureReleaseInput,
   type CommitFeatureReleaseResult,
+  type PushFeatureReleaseInput,
+  type PushFeatureReleaseResult,
+  type ConfirmRemoteBranchInput,
+  type ConfirmRemoteBranchResult,
   type FeatureRelease,
   FeatureComponentTasksResultSchema,
   DefineFeatureTasksInputSchema,
@@ -33,12 +37,20 @@ import {
   FeatureBranchInfoSchema,
   CommitFeatureReleaseInputSchema,
   CommitFeatureReleaseResultSchema,
+  PushFeatureReleaseInputSchema,
+  PushFeatureReleaseResultSchema,
+  ConfirmRemoteBranchInputSchema,
+  ConfirmRemoteBranchResultSchema,
   formatFeatureReleaseCheckMarkdownReport,
   parseCommandLine,
   validateGitBranchName,
   gitBranchExists,
   gitCreateBranch,
   gitCommit,
+  gitPush,
+  gitConfirmRemoteBranch,
+  gitGetCurrentBranch,
+  runGitCommand,
   formatConventionalCommit,
   validateConventionalCommit,
   AppError,
@@ -834,6 +846,22 @@ export class FeatureReleaseService {
 
     const repoPath = path.resolve(validatedInput.repo_path ?? '.');
 
+    // Đảm bảo commit được thực hiện trên release branch
+    const currentBranch = await gitGetCurrentBranch(repoPath);
+    if (currentBranch !== release.branch) {
+      const { stderr: coErr, exitCode: coCode } = await runGitCommand(
+        ['checkout', release.branch],
+        repoPath,
+      );
+      if (coCode !== 0) {
+        throw new AppError(
+          'GIT_COMMAND_FAILED',
+          `Failed to checkout release branch '${release.branch}' before commit: ${coErr.trim()}`,
+          { repoPath, branch: release.branch, stderr: coErr },
+        );
+      }
+    }
+
     // Run git commit
     const gitResult = await gitCommit(repoPath, {
       message,
@@ -888,5 +916,130 @@ export class FeatureReleaseService {
       throw new AppError('FEATURE_NOT_FOUND', `Feature '${featureId}' not found`, { featureId });
     }
     return this.releaseRepo.findByFeatureId(featureId);
+  }
+
+  /**
+   * Push feature branch lên remote repository và xác nhận remote branch qua git ls-remote (REL-005).
+   */
+  async pushFeatureRelease(
+    featureId: string,
+    input?: PushFeatureReleaseInput,
+  ): Promise<PushFeatureReleaseResult> {
+    const validatedInput = PushFeatureReleaseInputSchema.parse(input ?? {});
+
+    const feature = this.featureRepo.findById(featureId);
+    if (!feature) {
+      throw new AppError('FEATURE_NOT_FOUND', `Feature '${featureId}' not found`, { featureId });
+    }
+
+    const release = this.releaseRepo.findByFeatureId(featureId);
+    if (!release) {
+      throw new AppError(
+        'FEATURE_BRANCH_NOT_FOUND',
+        `No release branch found for feature '${featureId}'. Call createFeatureBranch first.`,
+        { featureId },
+      );
+    }
+
+    // Phải có commit trước khi push
+    if (!release.commit_sha) {
+      throw new AppError(
+        'FEATURE_NOT_COMMITTED',
+        `Feature release branch '${release.branch}' has not been committed yet. Call commitFeatureRelease first.`,
+        { featureId, branch: release.branch },
+      );
+    }
+
+    const branch = validatedInput.branch || release.branch;
+    const repoPath = path.resolve(
+      validatedInput.repo_path || (release.metadata?.repo_path as string) || '.',
+    );
+
+    // Thực hiện git push kèm xác nhận remote branch qua git ls-remote
+    const pushResult = await gitPush(repoPath, {
+      branch,
+      remote: validatedInput.remote,
+      setUpstream: validatedInput.set_upstream,
+      confirm: validatedInput.confirm_remote,
+      maxRetries: validatedInput.max_retries,
+      retryDelayMs: validatedInput.retry_delay_ms,
+    });
+
+    // Cập nhật trạng thái 'PUSHED' trong SQLite database
+    const updatedRelease = this.releaseRepo.update(release.id, {
+      status: 'PUSHED',
+      metadata: {
+        ...release.metadata,
+        remote: pushResult.remote,
+        remote_ref: pushResult.remoteRef,
+        remote_commit_sha: pushResult.commitSha,
+        pushed_at: pushResult.pushedAt,
+        confirmed_remote: pushResult.confirmedRemote,
+      },
+    });
+
+    this.logger.info(`Feature release pushed and remote confirmed for '${featureId}'`, {
+      featureId,
+      releaseId: release.id,
+      branch,
+      remote: pushResult.remote,
+      remoteRef: pushResult.remoteRef,
+      commitSha: pushResult.commitSha,
+      status: 'PUSHED',
+    });
+
+    return PushFeatureReleaseResultSchema.parse({
+      release_id: updatedRelease.id,
+      feature_id: featureId,
+      branch: pushResult.branch,
+      remote: pushResult.remote,
+      remote_ref: pushResult.remoteRef,
+      commit_sha: pushResult.commitSha || release.commit_sha,
+      status: 'PUSHED',
+      confirmed_remote: pushResult.confirmedRemote,
+      pushed_at: pushResult.pushedAt,
+    });
+  }
+
+  /**
+   * Xác nhận remote branch cho feature qua git ls-remote (REL-005).
+   */
+  async confirmRemoteBranch(
+    featureId: string,
+    input?: ConfirmRemoteBranchInput,
+  ): Promise<ConfirmRemoteBranchResult> {
+    const validatedInput = ConfirmRemoteBranchInputSchema.parse(input ?? {});
+
+    const feature = this.featureRepo.findById(featureId);
+    if (!feature) {
+      throw new AppError('FEATURE_NOT_FOUND', `Feature '${featureId}' not found`, { featureId });
+    }
+
+    const release = this.releaseRepo.findByFeatureId(featureId);
+    if (!release) {
+      throw new AppError(
+        'FEATURE_BRANCH_NOT_FOUND',
+        `No release branch found for feature '${featureId}'. Call createFeatureBranch first.`,
+        { featureId },
+      );
+    }
+
+    const branch = validatedInput.branch || release.branch;
+    const repoPath = path.resolve(
+      validatedInput.repo_path || (release.metadata?.repo_path as string) || '.',
+    );
+    const remote = validatedInput.remote || 'origin';
+
+    const check = await gitConfirmRemoteBranch(repoPath, branch, remote);
+
+    return ConfirmRemoteBranchResultSchema.parse({
+      feature_id: featureId,
+      branch,
+      remote,
+      remote_ref: check.ref,
+      commit_sha: check.commitSha,
+      confirmed: check.exists,
+      checked_at: new Date().toISOString(),
+    });
   }
 }

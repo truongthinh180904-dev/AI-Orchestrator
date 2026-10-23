@@ -786,3 +786,14 @@
 - Cập nhật bản ghi `feature_releases`: lưu `commit_sha = SHA`, chuyển trạng thái `status = 'COMMITTED'`, lưu vết metadata (thời gian, message, files committed).
 - Hỗ trợ `recordTaskCommit` cho từng task: lưu SHA 40 ký tự vào trường `commit_sha` của bảng `runs` trong SQLite database.
 - Cung cấp các endpoint REST API: POST /features/:id/commit, GET /features/:id/release, POST /tasks/:id/commit.
+
+## REL-005: Push, xử lý lỗi Git, xác nhận remote branch
+- Push an toàn qua `git push -u origin <branch>` bằng `spawn`, cấm tuyệt đối push trực tiếp lên các nhánh được bảo vệ (`main`, `master`) với lỗi `FORBIDDEN_PUSH_BRANCH`.
+- Xác nhận remote branch sau khi push bằng `git ls-remote --heads <remote> <branch>`; ném lỗi `GIT_REMOTE_BRANCH_NOT_FOUND` nếu không thấy branch hoặc SHA.
+- Cơ chế tự động che giấu bí mật (`sanitizeGitOutput`): gỡ bỏ toàn bộ URL credentials, PAT (`ghp_*`, `github_pat_*`), OAuth tokens khỏi lỗi và log.
+- Phân loại lỗi Git thành các mã lỗi chuẩn: `GIT_AUTH_FAILED` (401), `GIT_REMOTE_NOT_FOUND` (404), `GIT_NETWORK_ERROR` (504), `GIT_NON_FAST_FORWARD` (409), `GIT_PUSH_FAILED` (500).
+- Hỗ trợ cơ chế retry tự động với exponential backoff cho lỗi mạng tạm thời (`GIT_NETWORK_ERROR`); fail fast không retry cho lỗi auth, branch bảo vệ hoặc remote không tồn tại.
+- Cập nhật trạng thái `feature_releases` trong SQLite DB sang `PUSHED`, lưu vết `remote`, `remote_ref`, `pushed_at`, `remote_commit_sha`.
+- Thêm REST API: `POST /features/:id/push` (HTTP 200) và `GET /features/:id/remote-status` (HTTP 200).
+- Không thêm dependency bên ngoài mới; tái sử dụng zod, better-sqlite3 và child_process.
+

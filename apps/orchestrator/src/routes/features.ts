@@ -7,6 +7,8 @@ import {
   CheckReleaseReadinessInputSchema,
   CreateFeatureBranchInputSchema,
   CommitFeatureReleaseInputSchema,
+  PushFeatureReleaseInputSchema,
+  ConfirmRemoteBranchInputSchema,
   AppError,
 } from '@ai-orchestrator/shared';
 
@@ -189,6 +191,28 @@ export const featureRoutes: FastifyPluginAsync<FeatureRoutesOptions> = async (fa
 
   fastify.get('/features/:id/release', handleGetFeatureRelease);
   fastify.get('/api/features/:id/release', handleGetFeatureRelease);
+
+  // POST /features/:id/push & POST /api/features/:id/push (REL-005)
+  const handlePushFeatureRelease = async (request: FastifyRequest, reply: FastifyReply) => {
+    const params = FeatureParamsSchema.parse(request.params);
+    const body = PushFeatureReleaseInputSchema.parse(request.body ?? {});
+    const result = await featureService.pushFeatureRelease(params.id, body);
+    return reply.status(200).send({ data: result });
+  };
+
+  fastify.post('/features/:id/push', handlePushFeatureRelease);
+  fastify.post('/api/features/:id/push', handlePushFeatureRelease);
+
+  // GET /features/:id/remote-status & GET /api/features/:id/remote-status (REL-005)
+  const handleGetRemoteStatus = async (request: FastifyRequest) => {
+    const params = FeatureParamsSchema.parse(request.params);
+    const query = ConfirmRemoteBranchInputSchema.parse(request.query ?? {});
+    const result = await featureService.confirmRemoteBranch(params.id, query);
+    return { data: result };
+  };
+
+  fastify.get('/features/:id/remote-status', handleGetRemoteStatus);
+  fastify.get('/api/features/:id/remote-status', handleGetRemoteStatus);
 };
 
 

@@ -55,7 +55,12 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
         case 'QUALITY_GATE_NOT_FOUND':
         case 'FEATURE_BRANCH_NOT_FOUND':
         case 'RELEASE_NOT_FOUND':
+        case 'GIT_REMOTE_NOT_FOUND':
+        case 'GIT_REMOTE_BRANCH_NOT_FOUND':
           statusCode = 404;
+          break;
+        case 'GIT_AUTH_FAILED':
+          statusCode = 401;
           break;
         case 'FEATURE_RELEASE_BLOCKED':
           statusCode = 422;
@@ -71,7 +76,11 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
         case 'SCHEDULER_LOCKED':
         case 'BRANCH_ALREADY_EXISTS':
         case 'REPO_DIRTY':
+        case 'GIT_NON_FAST_FORWARD':
           statusCode = 409;
+          break;
+        case 'GIT_NETWORK_ERROR':
+          statusCode = 504;
           break;
         case 'PLAN_SPAWN_ERROR':
         case 'PLAN_GENERATION_FAILED':
@@ -79,6 +88,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
         case 'REVIEWER_EXECUTION_FAILED':
         case 'DATABASE_NOT_CONFIGURED':
         case 'GIT_COMMIT_FAILED':
+        case 'GIT_PUSH_FAILED':
           statusCode = 500;
           break;
         case 'VALIDATION_ERROR':
@@ -114,6 +124,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
         case 'BASE_REF_NOT_FOUND':
         case 'INVALID_COMMIT_MESSAGE':
         case 'NOTHING_TO_COMMIT':
+        case 'FORBIDDEN_PUSH_BRANCH':
+        case 'FEATURE_NOT_COMMITTED':
           statusCode = 400;
           break;
         default:

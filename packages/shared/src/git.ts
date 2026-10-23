@@ -1121,5 +1121,371 @@ export async function gitGetCommitDetails(
   };
 }
 
+/**
+ * Redacts secrets, credentials, tokens, and authorization headers from Git outputs or error messages.
+ * Prevents credentials from leaking into logs, error responses, or database records.
+ */
+export function sanitizeGitOutput(text: string): string {
+  if (!text) return '';
+  return text
+    // URLs with embedded credentials (e.g. https://user:token@github.com or https://token@github.com)
+    .replace(/(https?:\/\/)[^:@\s]+:[^@\s]+@/gi, '$1[REDACTED_CREDENTIALS]@')
+    .replace(/(https?:\/\/)[^@\s]+@/gi, '$1[REDACTED_CREDENTIALS]@')
+    // Generic tokens/passwords in key-value patterns
+    .replace(/\b(password|token|secret|authorization|key)[:=]\s*([^\s;]+)/gi, '$1=[REDACTED]')
+    // GitHub Personal Access Tokens and OAuth tokens
+    .replace(/\bghp_[a-zA-Z0-9]{36,}\b/g, '[REDACTED_TOKEN]')
+    .replace(/\bgithub_pat_[a-zA-Z0-9_]{50,}\b/g, '[REDACTED_TOKEN]')
+    .replace(/\bgho_[a-zA-Z0-9]{36,}\b/g, '[REDACTED_TOKEN]')
+    .replace(/\bghu_[a-zA-Z0-9]{36,}\b/g, '[REDACTED_TOKEN]')
+    .replace(/\bghs_[a-zA-Z0-9]{36,}\b/g, '[REDACTED_TOKEN]')
+    .replace(/\bghr_[a-zA-Z0-9]{36,}\b/g, '[REDACTED_TOKEN]');
+}
+
+export interface GitRemoteRefEntry {
+  commitSha: string;
+  ref: string;
+  branchName: string;
+}
+
+/**
+ * Parses raw output from `git ls-remote --heads <remote> [branch]`.
+ * Each line has the format `<commitSha>\t<ref>`.
+ */
+export function parseLsRemoteOutput(rawOutput: string): GitRemoteRefEntry[] {
+  const lines = rawOutput.split(/\r?\n/);
+  const entries: GitRemoteRefEntry[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const parts = trimmed.split(/\s+/);
+    if (parts.length >= 2) {
+      const commitSha = parts[0]!;
+      const ref = parts[1]!;
+      const branchName = ref.startsWith('refs/heads/') ? ref.slice('refs/heads/'.length) : ref;
+      entries.push({ commitSha, ref, branchName });
+    }
+  }
+  return entries;
+}
+
+/**
+ * Classifies Git error messages into specific AppError instances with appropriate error codes.
+ */
+export function classifyGitError(
+  stderr: string,
+  exitCode: number,
+  context: Record<string, unknown> = {},
+): AppError {
+  const sanitized = sanitizeGitOutput(stderr);
+  const lower = sanitized.toLowerCase();
+
+  // 1. Authentication / Permission errors
+  if (
+    lower.includes('permission denied') ||
+    lower.includes('authentication failed') ||
+    lower.includes('invalid credentials') ||
+    lower.includes('could not read username') ||
+    lower.includes('terminal prompts disabled') ||
+    lower.includes('401') ||
+    lower.includes('403') ||
+    lower.includes('bad credentials')
+  ) {
+    return new AppError('GIT_AUTH_FAILED', `Git authentication failed: ${sanitized}`, {
+      ...context,
+      exitCode,
+      sanitizedError: sanitized,
+    });
+  }
+
+  // 2. Remote not found
+  if (
+    lower.includes('does not appear to be a git repository') ||
+    lower.includes('could not read from remote repository') ||
+    lower.includes('remote not found') ||
+    lower.includes('no such remote') ||
+    lower.includes('not a valid repository or does not exist')
+  ) {
+    return new AppError('GIT_REMOTE_NOT_FOUND', `Git remote repository not found: ${sanitized}`, {
+      ...context,
+      exitCode,
+      sanitizedError: sanitized,
+    });
+  }
+
+  // 3. Network / Connection errors
+  if (
+    lower.includes('could not resolve host') ||
+    lower.includes('failed to connect') ||
+    lower.includes('connection timed out') ||
+    lower.includes('connection reset') ||
+    lower.includes('operation timed out') ||
+    lower.includes('network is down') ||
+    lower.includes('network is unreachable') ||
+    lower.includes('unable to access') ||
+    lower.includes('temporary failure')
+  ) {
+    return new AppError('GIT_NETWORK_ERROR', `Git network failure: ${sanitized}`, {
+      ...context,
+      exitCode,
+      sanitizedError: sanitized,
+    });
+  }
+
+  // 4. Non-fast-forward / rejection
+  if (
+    lower.includes('non-fast-forward') ||
+    lower.includes('fetch first') ||
+    lower.includes('[rejected]') ||
+    lower.includes('updates were rejected')
+  ) {
+    return new AppError('GIT_NON_FAST_FORWARD', `Git push rejected (non-fast-forward): ${sanitized}`, {
+      ...context,
+      exitCode,
+      sanitizedError: sanitized,
+    });
+  }
+
+  return new AppError('GIT_PUSH_FAILED', `Git command failed: ${sanitized || `exit code ${exitCode}`}`, {
+    ...context,
+    exitCode,
+    sanitizedError: sanitized,
+  });
+}
+
+export interface GitLsRemoteOptions {
+  remote?: string;
+  branch?: string;
+}
+
+export interface GitLsRemoteResult {
+  branchFound: boolean;
+  commitSha: string | null;
+  ref: string | null;
+  entries: GitRemoteRefEntry[];
+  raw: string;
+}
+
+/**
+ * Queries remote references using `git ls-remote --heads <remote> [branch]`.
+ * Sanitizes errors and returns matching entries.
+ */
+export async function gitLsRemote(
+  repoPath: string,
+  options: GitLsRemoteOptions = {},
+): Promise<GitLsRemoteResult> {
+  if (!fs.existsSync(repoPath)) {
+    throw new AppError('PATH_NOT_FOUND', `Repository path does not exist: ${repoPath}`, {
+      repoPath,
+    });
+  }
+
+  const remote = options.remote ?? 'origin';
+  const args = ['ls-remote', '--heads', remote];
+  if (options.branch) {
+    args.push(options.branch);
+  }
+
+  const { stdout, stderr, exitCode } = await runGitCommand(args, repoPath);
+
+  if (exitCode !== 0) {
+    throw classifyGitError(stderr, exitCode, { repoPath, remote, branch: options.branch });
+  }
+
+  const entries = parseLsRemoteOutput(stdout);
+
+  if (options.branch) {
+    const matched = entries.find(
+      (e) => e.branchName === options.branch || e.ref === `refs/heads/${options.branch}`,
+    );
+    return {
+      branchFound: Boolean(matched),
+      commitSha: matched?.commitSha ?? null,
+      ref: matched?.ref ?? null,
+      entries,
+      raw: stdout,
+    };
+  }
+
+  return {
+    branchFound: entries.length > 0,
+    commitSha: entries[0]?.commitSha ?? null,
+    ref: entries[0]?.ref ?? null,
+    entries,
+    raw: stdout,
+  };
+}
+
+/**
+ * Checks and confirms if a specific branch exists on the remote repository via `git ls-remote`.
+ */
+export async function gitConfirmRemoteBranch(
+  repoPath: string,
+  branch: string,
+  remote = 'origin',
+): Promise<{ exists: boolean; commitSha: string | null; ref: string | null }> {
+  const result = await gitLsRemote(repoPath, { remote, branch });
+  return {
+    exists: result.branchFound,
+    commitSha: result.commitSha,
+    ref: result.ref,
+  };
+}
+
+export interface GitPushOptions {
+  branch: string;
+  remote?: string;
+  setUpstream?: boolean;
+  confirm?: boolean;
+  maxRetries?: number;
+  retryDelayMs?: number;
+  onRetry?: (attempt: number, error: Error) => void;
+  runCommand?: (args: string[], cwd: string) => Promise<{ stdout: string; stderr: string; exitCode: number }>;
+}
+
+export interface GitPushResult {
+  branch: string;
+  remote: string;
+  remoteRef: string;
+  commitSha: string;
+  setUpstream: boolean;
+  confirmedRemote: boolean;
+  pushedAt: string;
+}
+
+/**
+ * Pushes a branch to a remote Git repository with safe checks, retry mechanism, and remote verification.
+ * Strictly forbids pushing directly to protected branches ('main', 'master').
+ * Verifies that the branch exists on remote via `git ls-remote --heads` after push.
+ */
+export async function gitPush(
+  repoPath: string,
+  options: GitPushOptions,
+): Promise<GitPushResult> {
+  if (!fs.existsSync(repoPath)) {
+    throw new AppError('PATH_NOT_FOUND', `Repository path does not exist: ${repoPath}`, {
+      repoPath,
+    });
+  }
+
+  const stat = fs.statSync(repoPath);
+  if (!stat.isDirectory()) {
+    throw new AppError('NOT_A_DIRECTORY', `Repository path is not a directory: ${repoPath}`, {
+      repoPath,
+    });
+  }
+
+  const { branch } = options;
+  if (!branch || branch.trim().length === 0) {
+    throw new AppError('INVALID_BRANCH_NAME', 'Branch name cannot be empty for push', { repoPath });
+  }
+
+  validateGitBranchName(branch);
+
+  // Strict safety rule: Do NOT allow direct push to protected branches
+  const protectedBranches = ['main', 'master'];
+  if (protectedBranches.includes(branch.trim().toLowerCase())) {
+    throw new AppError(
+      'FORBIDDEN_PUSH_BRANCH',
+      `Direct push to protected branch '${branch}' is strictly forbidden by policy.`,
+      { repoPath, branch },
+    );
+  }
+
+  const remote = options.remote ?? 'origin';
+  const setUpstream = options.setUpstream !== false;
+  const confirm = options.confirm !== false;
+  const maxRetries = options.maxRetries ?? 2;
+  const retryDelayMs = options.retryDelayMs ?? 300;
+  const runner = options.runCommand ?? runGitCommand;
+
+  const pushArgs = ['push'];
+  if (setUpstream) {
+    pushArgs.push('-u');
+  }
+  pushArgs.push(remote, branch);
+
+  let lastError: AppError | null = null;
+  const totalAttempts = Math.max(1, maxRetries + 1);
+
+  for (let attempt = 1; attempt <= totalAttempts; attempt++) {
+    const { stdout: pushStdout, stderr: pushStderr, exitCode: pushExit } = await runner(
+      pushArgs,
+      repoPath,
+    );
+
+    if (pushExit === 0) {
+      lastError = null;
+      break;
+    }
+
+    const classifiedError = classifyGitError(pushStderr || pushStdout, pushExit, {
+      repoPath,
+      remote,
+      branch,
+      attempt,
+    });
+    lastError = classifiedError;
+
+    // Only retry on network errors; fail fast on auth, remote not found, or non-fast-forward
+    const isRetryable = classifiedError.code === 'GIT_NETWORK_ERROR';
+    if (isRetryable && attempt < totalAttempts) {
+      if (options.onRetry) {
+        options.onRetry(attempt, classifiedError);
+      }
+      const backoff = retryDelayMs * Math.pow(1.5, attempt - 1);
+      await new Promise((res) => setTimeout(res, backoff));
+      continue;
+    }
+
+    throw classifiedError;
+  }
+
+  if (lastError) {
+    throw lastError;
+  }
+
+  // Verify / confirm on remote using git ls-remote
+  let confirmedCommitSha: string | null = null;
+  if (confirm) {
+    const lsResult = await gitLsRemote(repoPath, { remote, branch });
+    if (!lsResult.branchFound || !lsResult.commitSha) {
+      throw new AppError(
+        'GIT_REMOTE_BRANCH_NOT_FOUND',
+        `Remote branch '${branch}' could not be confirmed via git ls-remote on remote '${remote}'.`,
+        {
+          repoPath,
+          remote,
+          branch,
+        },
+      );
+    }
+    confirmedCommitSha = lsResult.commitSha;
+  }
+
+  // If not confirmed via ls-remote, get the local commit SHA of the branch
+  if (!confirmedCommitSha) {
+    const { stdout: revStdout, exitCode: revExit } = await runner(
+      ['rev-parse', branch],
+      repoPath,
+    );
+    if (revExit === 0 && revStdout.trim()) {
+      confirmedCommitSha = revStdout.trim();
+    } else {
+      confirmedCommitSha = '';
+    }
+  }
+
+  return {
+    branch,
+    remote,
+    remoteRef: `refs/heads/${branch}`,
+    commitSha: confirmedCommitSha,
+    setUpstream,
+    confirmedRemote: confirm,
+    pushedAt: new Date().toISOString(),
+  };
+}
+
 
 

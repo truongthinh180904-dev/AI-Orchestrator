@@ -381,4 +381,63 @@ export const RecordTaskCommitResultSchema = z.object({
 
 export type RecordTaskCommitResult = z.infer<typeof RecordTaskCommitResultSchema>;
 
+/**
+ * Tham số đầu vào để push feature branch lên remote repository (REL-005).
+ */
+export const PushFeatureReleaseInputSchema = z.object({
+  branch: z.string().optional(),
+  remote: z.string().default('origin'),
+  set_upstream: z.boolean().default(true),
+  confirm_remote: z.boolean().default(true),
+  repo_path: z.string().optional(),
+  max_retries: z.number().int().min(0).max(5).default(2),
+  retry_delay_ms: z.number().int().min(0).default(300),
+});
+
+export type PushFeatureReleaseInput = z.input<typeof PushFeatureReleaseInputSchema>;
+
+/**
+ * Kết quả push feature branch lên remote và xác nhận remote branch (REL-005).
+ */
+export const PushFeatureReleaseResultSchema = z.object({
+  release_id: z.string().min(1),
+  feature_id: z.string().min(1),
+  branch: z.string().min(1),
+  remote: z.string().min(1),
+  remote_ref: z.string().min(1),
+  commit_sha: z.string().regex(/^[0-9a-f]{40}$/i, 'Commit SHA must be a 40-character hex string'),
+  status: FeatureReleaseStatusSchema,
+  confirmed_remote: z.boolean(),
+  pushed_at: z.string(),
+});
+
+export type PushFeatureReleaseResult = z.infer<typeof PushFeatureReleaseResultSchema>;
+
+/**
+ * Tham số truy vấn / xác nhận remote branch cho feature release (REL-005).
+ */
+export const ConfirmRemoteBranchInputSchema = z.object({
+  branch: z.string().optional(),
+  remote: z.string().default('origin'),
+  repo_path: z.string().optional(),
+});
+
+export type ConfirmRemoteBranchInput = z.input<typeof ConfirmRemoteBranchInputSchema>;
+
+/**
+ * Kết quả xác nhận remote branch qua git ls-remote (REL-005).
+ */
+export const ConfirmRemoteBranchResultSchema = z.object({
+  feature_id: z.string().min(1),
+  branch: z.string().min(1),
+  remote: z.string().min(1),
+  remote_ref: z.string().nullable().default(null),
+  commit_sha: z.string().regex(/^[0-9a-f]{40}$/i).nullable().default(null),
+  confirmed: z.boolean(),
+  checked_at: z.string(),
+});
+
+export type ConfirmRemoteBranchResult = z.infer<typeof ConfirmRemoteBranchResultSchema>;
+
+
 
