@@ -707,3 +707,14 @@
 - **Audit Report trong SQLite**: Tự động lưu báo cáo `scope_diff` vào bảng `reports` khi có `runId` phục vụ Quality Gate (QLT-007) và kiểm toán.
 - **REST API Endpoints**: Cung cấp `POST /api/quality/scope-diff`, `GET /api/tasks/:id/scope-diff`, `GET /api/tasks/:id/diff` phục vụ backend và Diff Viewer UI (UI-005).
 - **Dependencies**: Tái sử dụng các module nội bộ (`better-sqlite3`, `zod`, `Fastify`), không cài thêm thư viện ngoài.
+
+
+## QLT-004: Reviewer agent — findings `{severity, file, line, message}` (zod) — Output hợp lệ schema
+- **Zod Findings Schema**: Chuẩn hóa cấu trúc `{ severity, file, line, message }` với 5 mức severity (`critical`, `high`, `medium`, `low`, `info`); `ReviewFindingInputSchema` tiền xử lý linh hoạt đầu ra từ LLM.
+- **Quy tắc nghiệm thu "Output hợp lệ schema"**: Bóc tách JSON an toàn từ markdown block (` ```json `), mảng thuần hoặc object; từ chối và báo lỗi có cấu trúc khi dữ liệu vi phạm schema.
+- **Tiêu chuẩn Quality Gate**: Áp dụng rule từ `SKILL-testing.md` đánh dấu `passed: false` khi tồn tại bất kỳ finding nào mức `critical` hoặc `high`.
+- **Migration 008 & Data Model**: Thêm bảng SQLite `review_findings` có foreign keys cascade tới `tasks` và `runs` cùng các chỉ mục tối ưu cho truy vấn lọc/phân trang.
+- **Audit Reports**: Lưu trữ báo cáo kiểm toán đầy đủ dưới dạng bản ghi `review_findings` trong bảng `reports` phục vụ UI-006 và Quality Gate (QLT-007).
+- **Thực thi tiến trình an toàn**: `ReviewerService` spawn tiến trình AGY/Reviewer qua `ProcessAdapter` không dùng shell động; xử lý timeout watchdog và thu thập stdout/stderr.
+- **Tích hợp Git Diff & Task**: `ReviewerService.reviewTask` tự động gắn kết diff thực tế từ git với thông tin task (tiêu chí nghiệm thu, scope files) làm ngữ cảnh cho AI Reviewer.
+- **Dependencies**: Tái sử dụng các module nội bộ (`better-sqlite3`, `zod`, `Fastify`), không cài thêm thư viện ngoài.

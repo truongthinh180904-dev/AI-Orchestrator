@@ -12,6 +12,7 @@ import { PlannerService } from './services/planner-service.js';
 import { QualityConfigService } from './services/quality-config-service.js';
 import { QualityRunner } from './services/quality-runner.js';
 import { ScopeDiffService } from './services/scope-diff-service.js';
+import { ReviewerService } from './services/reviewer-service.js';
 import { createExecutionManager } from './adapters/execution-manager.js';
 import { healthRoutes } from './routes/health.js';
 import { taskRoutes } from './routes/tasks.js';
@@ -62,10 +63,14 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
           break;
         case 'PLAN_SPAWN_ERROR':
         case 'PLAN_GENERATION_FAILED':
+        case 'REVIEWER_SPAWN_ERROR':
+        case 'REVIEWER_EXECUTION_FAILED':
         case 'DATABASE_NOT_CONFIGURED':
           statusCode = 500;
           break;
         case 'VALIDATION_ERROR':
+        case 'INVALID_REVIEW_FINDINGS':
+        case 'INVALID_REVIEW_SCHEMA':
         case 'CIRCULAR_DEPENDENCY_ERROR':
         case 'FOREIGN_KEY_VIOLATION':
         case 'SELF_DEPENDENCY_ERROR':
@@ -198,6 +203,15 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       repositoryRegistry: options.repositoryRegistry,
     });
 
+  const reviewerService =
+    options.reviewerService ??
+    new ReviewerService({
+      db,
+      repositoryRegistry: options.repositoryRegistry,
+      scopeDiffService,
+      config: options.config,
+    });
+
   // Register routes
   await server.register(healthRoutes);
   await server.register(taskRoutes, { taskService });
@@ -210,6 +224,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     qualityConfigService,
     qualityRunner,
     scopeDiffService,
+    reviewerService,
   });
 
   return server;

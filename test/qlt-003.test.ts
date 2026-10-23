@@ -22,7 +22,7 @@ import { buildServer } from '../apps/orchestrator/src/server.js';
 describe('QLT-003 Acceptance Tests: So diff với phạm vi task, liệt kê file ngoài phạm vi — Báo đúng file lạ', () => {
   let db: Database.Database;
   let taskRepo: TaskRepository;
-  let planRepo: PlanRepository;
+  let _planRepo: PlanRepository;
   let reportRepo: ReportRepository;
   let runRepo: RunRepository;
   let configService: QualityConfigService;
@@ -35,7 +35,7 @@ describe('QLT-003 Acceptance Tests: So diff với phạm vi task, liệt kê fil
     db = createDatabase(':memory:');
     runMigrations(db);
     taskRepo = new TaskRepository(db);
-    planRepo = new PlanRepository(db);
+    _planRepo = new PlanRepository(db);
     reportRepo = new ReportRepository(db);
     runRepo = new RunRepository(db);
 

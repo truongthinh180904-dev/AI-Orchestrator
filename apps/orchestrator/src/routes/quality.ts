@@ -9,16 +9,20 @@ import {
   normalizeQualityCommand,
   type ParsedConfig,
   CompareScopeInputSchema,
+  ReviewDiffInputSchema,
+  FindingSeveritySchema,
   AppError,
 } from '@ai-orchestrator/shared';
 import type { QualityConfigService } from '../services/quality-config-service.js';
 import type { QualityRunner } from '../services/quality-runner.js';
 import type { ScopeDiffService } from '../services/scope-diff-service.js';
+import type { ReviewerService } from '../services/reviewer-service.js';
 
 export interface QualityRoutesOptions {
   qualityConfigService: QualityConfigService;
   qualityRunner: QualityRunner;
   scopeDiffService?: ScopeDiffService;
+  reviewerService?: ReviewerService;
 }
 
 const RepoParamsSchema = z.object({
@@ -77,8 +81,39 @@ const TaskScopeQuerySchema = z.object({
   runId: z.string().optional(),
 });
 
+const ValidateReviewBodySchema = z.object({
+  output: z.string().min(1, 'Review output string is required'),
+  taskId: z.string().optional(),
+  runId: z.string().optional(),
+  reviewerType: z.string().optional(),
+});
+
+const TaskReviewBodySchema = z.object({
+  runId: z.string().optional(),
+  repoPath: z.string().optional(),
+  baseRef: z.string().optional(),
+  targetRef: z.string().optional(),
+  customPrompt: z.string().optional(),
+  timeoutMs: z.number().int().positive().optional(),
+  command: z
+    .object({
+      exe: z.string().optional(),
+      args: z.array(z.string()).optional(),
+    })
+    .optional(),
+});
+
+const FindingQuerySchema = z.object({
+  taskId: z.string().optional(),
+  runId: z.string().optional(),
+  severity: FindingSeveritySchema.optional(),
+  file: z.string().optional(),
+  limit: z.coerce.number().int().positive().optional(),
+  offset: z.coerce.number().int().nonnegative().optional(),
+});
+
 export const qualityRoutes: FastifyPluginAsync<QualityRoutesOptions> = async (fastify, opts) => {
-  const { qualityConfigService, qualityRunner, scopeDiffService } = opts;
+  const { qualityConfigService, qualityRunner, scopeDiffService, reviewerService } = opts;
 
   // GET /repos/:id/quality-config & /api/repos/:id/quality-config
   const handleGetRepoQualityConfig = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
@@ -259,4 +294,88 @@ export const qualityRoutes: FastifyPluginAsync<QualityRoutesOptions> = async (fa
 
   fastify.get('/tasks/:id/diff', handleGetTaskDiff);
   fastify.get('/api/tasks/:id/diff', handleGetTaskDiff);
+
+  // POST /quality/review & /api/quality/review
+  const handleReviewDiff = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    if (!reviewerService) {
+      throw new AppError('SERVICE_UNAVAILABLE', 'Reviewer service is not configured');
+    }
+    const body = ReviewDiffInputSchema.parse(request.body ?? {});
+    const result = await reviewerService.reviewDiff(body);
+    return reply.status(200).send({ data: result });
+  };
+
+  fastify.post('/quality/review', handleReviewDiff);
+  fastify.post('/api/quality/review', handleReviewDiff);
+
+  // POST /quality/review/validate & /api/quality/review/validate
+  const handleValidateReview = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    if (!reviewerService) {
+      throw new AppError('SERVICE_UNAVAILABLE', 'Reviewer service is not configured');
+    }
+    const body = ValidateReviewBodySchema.parse(request.body ?? {});
+    const result = reviewerService.parseAndValidateReview(body.output, {
+      taskId: body.taskId,
+      runId: body.runId,
+      reviewerType: body.reviewerType,
+    });
+    return reply.status(200).send({ data: result });
+  };
+
+  fastify.post('/quality/review/validate', handleValidateReview);
+  fastify.post('/api/quality/review/validate', handleValidateReview);
+
+  // POST /tasks/:id/review & /api/tasks/:id/review
+  const handleReviewTask = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    if (!reviewerService) {
+      throw new AppError('SERVICE_UNAVAILABLE', 'Reviewer service is not configured');
+    }
+    const params = TaskParamsSchema.parse(request.params);
+    const body = TaskReviewBodySchema.parse(request.body ?? {});
+    const result = await reviewerService.reviewTask(params.id, body);
+    return reply.status(200).send({ data: result });
+  };
+
+  fastify.post('/tasks/:id/review', handleReviewTask);
+  fastify.post('/api/tasks/:id/review', handleReviewTask);
+
+  // GET /quality/findings & /api/quality/findings
+  const handleGetFindings = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    if (!reviewerService) {
+      throw new AppError('SERVICE_UNAVAILABLE', 'Reviewer service is not configured');
+    }
+    const query = FindingQuerySchema.parse(request.query ?? {});
+    const findings = reviewerService.listFindings(query);
+    const total = reviewerService.countFindings(query);
+    return reply.send({ data: findings, meta: { total } });
+  };
+
+  fastify.get('/quality/findings', handleGetFindings);
+  fastify.get('/api/quality/findings', handleGetFindings);
+
+  // GET /tasks/:id/review-findings & /api/tasks/:id/review-findings
+  const handleGetTaskFindings = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    if (!reviewerService) {
+      throw new AppError('SERVICE_UNAVAILABLE', 'Reviewer service is not configured');
+    }
+    const params = TaskParamsSchema.parse(request.params);
+    const findings = reviewerService.getFindingsForTask(params.id);
+    return reply.send({ data: findings });
+  };
+
+  fastify.get('/tasks/:id/review-findings', handleGetTaskFindings);
+  fastify.get('/api/tasks/:id/review-findings', handleGetTaskFindings);
+
+  // GET /runs/:id/review-findings & /api/runs/:id/review-findings
+  const handleGetRunFindings = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    if (!reviewerService) {
+      throw new AppError('SERVICE_UNAVAILABLE', 'Reviewer service is not configured');
+    }
+    const params = RunParamsSchema.parse(request.params);
+    const findings = reviewerService.getFindingsForRun(params.id);
+    return reply.send({ data: findings });
+  };
+
+  fastify.get('/runs/:id/review-findings', handleGetRunFindings);
+  fastify.get('/api/runs/:id/review-findings', handleGetRunFindings);
 };
