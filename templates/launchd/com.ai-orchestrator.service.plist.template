@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>{{SERVICE_LABEL}}</string>
+    <key>ProcessType</key>
+    <string>Standard</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{{CAFFEINATE_BIN}}</string>
+        <string>{{CAFFEINATE_FLAGS}}</string>
+        <string>{{RUNNER_BIN}}</string>
+        <string>{{COMMAND_ARGS}}</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>{{WORKING_DIR}}</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>{{PATH}}</string>
+        <key>NODE_ENV</key>
+        <string>{{NODE_ENV}}</string>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>{{LOG_STDOUT}}</string>
+    <key>StandardErrorPath</key>
+    <string>{{LOG_STDERR}}</string>
+    <key>RunAtLoad</key>
+    <{{RUN_AT_LOAD}}/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>Crashed</key>
+        <true/>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+</dict>
+</plist>

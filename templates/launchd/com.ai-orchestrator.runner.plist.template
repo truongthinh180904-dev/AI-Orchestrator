@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>{{RUNNER_LABEL}}</string>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{{CAFFEINATE_BIN}}</string>
+        <string>{{CAFFEINATE_FLAGS}}</string>
+        <string>/bin/bash</string>
+        <string>{{SCRIPT_PATH}}</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>{{WORKING_DIR}}</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>{{PATH}}</string>
+        <key>STOP_AT_HOUR</key>
+        <string>{{STOP_AT_HOUR}}</string>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>{{LOG_STDOUT}}</string>
+    <key>StandardErrorPath</key>
+    <string>{{LOG_STDERR}}</string>
+    <key>RunAtLoad</key>
+    <{{RUN_AT_LOAD}}/>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>{{START_HOUR}}</integer>
+        <key>Minute</key>
+        <integer>{{START_MINUTE}}</integer>
+    </dict>
+</dict>
+</plist>

@@ -31,16 +31,33 @@ MAX_RUNS=1 ./run-agy.sh
 Kiểm tra: không bị hỏi lại, `PROGRESS.md` cập nhật, có commit mới trên `dev`, log có `RESULT: DONE <task-id>`.
 
 ## 4. Chạy xuyên đêm
+
+### Cách 1: Chạy tự động qua Launchd Service (Khuyến nghị trên macOS)
+Chi tiết hướng dẫn tại [docs/launchd-service-guide.md](docs/launchd-service-guide.md).
+```bash
+# Cài đặt và khởi chạy Orchestrator Server daemon qua launchd:
+./scripts/service-control.sh install service
+./scripts/service-control.sh start service
+
+# Kiểm tra trạng thái và log:
+./scripts/service-control.sh status service
+./scripts/service-control.sh logs service
+
+# Hoặc cài đặt runner xuyên đêm tự động chạy từ 22:00:
+./scripts/service-control.sh install runner
+```
+
+### Cách 2: Chạy trực tiếp với caffeinate và tmux
 ```bash
 tmux new -s agy
-STOP_AT_HOUR=7 caffeinate -i ./run-agy.sh
+STOP_AT_HOUR=7 ./scripts/run-caffeinated.sh ./run-agy.sh
 ```
 (Thoát tmux mà vẫn chạy: `Ctrl+b` rồi `d`; vào lại: `tmux attach -t agy`.)
 
 Biến chỉnh được: `COOLDOWN` (giây nghỉ giữa lượt, mặc định 180), `MAX_RUNS`, `STOP_AFTER` (vd `AGY-008`), `MAX_LOAD_PER_CORE`, `MIN_FREE_MEM_PCT`, `QUOTA_BACKOFF`.
 
-Dừng an toàn: `touch STOP` trong thư mục dự án.
-Theo dõi: `tail -f logs/orchestrator.log`.
+Dừng an toàn: `touch STOP` trong thư mục dự án hoặc `./scripts/service-control.sh stop service`.
+Theo dõi: `tail -f logs/orchestrator.log` hoặc `tail -f logs/launchd.service.stdout.log`.
 
 ## 5. Sau khi chạy
 - Xem `PROGRESS.md`, `reports/`, `git log dev`, `logs/`.

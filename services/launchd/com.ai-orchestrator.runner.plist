@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ai-orchestrator.runner</string>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/caffeinate</string>
+        <string>-dimsu</string>
+        <string>/bin/bash</string>
+        <string>/Users/truongthinh/Documents/AI Orchestrator/run-agy.sh</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/truongthinh/Documents/AI Orchestrator</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>STOP_AT_HOUR</key>
+        <string>7</string>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/Users/truongthinh/Documents/AI Orchestrator/logs/launchd.runner.stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/truongthinh/Documents/AI Orchestrator/logs/launchd.runner.stderr.log</string>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>22</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+</dict>
+</plist>

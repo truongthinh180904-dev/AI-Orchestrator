@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/main.js"
   },
   "dependencies": {
     "@ai-orchestrator/db": "workspace:*",

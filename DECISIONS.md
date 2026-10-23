@@ -939,3 +939,14 @@
 - Tích hợp vào `ResourceQuotaManager` và `TaskScheduler`: `canAcquire()` và `acquireNextTask()` từ chối cấp task với reason `SYSTEM_RESOURCE_EXCEEDED` khi hệ thống quá tải; `step()` an toàn bỏ qua lượt chạy.
 - Cung cấp các REST API endpoint: `GET /system/resources`, `GET /system/resources/snapshot`, `PATCH /system/resources/thresholds`, `POST /system/resources/sample`, `GET /system/resources/events`.
 - Tuân thủ TypeScript `strict: true`, không thêm dependency mới; đáp ứng 100% tiêu chí nghiệm thu "Vượt ngưỡng → dừng nhận task".
+
+
+## OPS-006: Service khởi động (launchd) + caffeinate giữ máy thức; hướng dẫn — Tài liệu + plist
+- Chọn triển khai dịch vụ dưới dạng LaunchAgent per-user (`~/Library/LaunchAgents/`) thay vì LaunchDaemon để truy cập đầy đủ session người dùng (node/pnpm, Git credentials, Keychain, display assertions) mà không yêu cầu sudo.
+- Cung cấp sẵn 2 file plist hoàn chỉnh (`services/launchd/com.ai-orchestrator.service.plist` cho HTTP daemon, `services/launchd/com.ai-orchestrator.runner.plist` cho batch runner) đã xác thực tính hợp lệ qua Apple `plutil -lint`.
+- Thiết lập `KeepAlive: { Crashed: true, SuccessfulExit: false }` kết hợp `ThrottleInterval: 30` giây để tự khởi động lại khi crash nhưng không lặp vô tận khi chủ động tắt.
+- Tích hợp `caffeinate -dimsu` bọc ngoài tiến trình chạy để giữ màn hình, CPU, ổ đĩa và hệ thống luôn thức trong suốt quá trình chạy xuyên đêm.
+- Triển khai `LaunchdServiceConfigSchema` và `generateLaunchdPlist` (`@ai-orchestrator/shared`) sinh XML Apple Property List chuẩn chỉnh và tự động escape ký tự đặc biệt.
+- Triển khai `CaffeinateManager` (`apps/orchestrator`) quản lý vòng đời tiến trình caffeinate, hỗ trợ dọn dẹp SIGTERM/SIGKILL khi tắt ứng dụng và có chế độ mô phỏng an toàn trên các OS khác.
+- Cung cấp kịch bản quản trị `scripts/service-control.sh` (install/uninstall/start/stop/restart/status/logs/generate) và wrapper `scripts/run-caffeinated.sh`.
+- Viết tài liệu hướng dẫn vận hành chi tiết `docs/launchd-service-guide.md` và cập nhật `RUN.md`; không thêm dependency ngoài mới, tuân thủ TypeScript `strict: true`.

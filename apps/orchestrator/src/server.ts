@@ -31,7 +31,9 @@ import { qualityRoutes } from './routes/quality.js';
 import { quotaRoutes } from './routes/quota.js';
 import { scheduleRoutes } from './routes/schedule.js';
 import { systemResourceRoutes } from './routes/system-resources.js';
+import { powerRoutes } from './routes/power.js';
 import { SystemResourceMonitor } from './services/system-resource-monitor.js';
+import { CaffeinateManager } from './services/caffeinate-manager.js';
 import { SystemResourceRepository } from '@ai-orchestrator/db';
 
 export async function buildServer(options: BuildServerOptions): Promise<FastifyInstance> {
@@ -337,6 +339,8 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
       qualityConfigService,
     });
 
+  const caffeinateManager = options.caffeinateManager ?? new CaffeinateManager();
+
   // Register routes
   await server.register(healthRoutes);
   await server.register(taskRoutes, { taskService });
@@ -349,6 +353,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     resourceMonitor: systemResourceMonitor,
     resourceRepo: new SystemResourceRepository(db),
   });
+  await server.register(powerRoutes, { caffeinateManager });
   await server.register(scheduleRoutes, { scheduleManager: executionScheduleManager });
   await server.register(planRoutes, { plannerService });
   await server.register(qualityRoutes, {

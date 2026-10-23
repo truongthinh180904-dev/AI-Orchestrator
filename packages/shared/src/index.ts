@@ -15,3 +15,5 @@ export * from './security/index.js';
 export * from './resources/index.js';
 export * from './schedule/index.js';
 export * from './process/index.js';
+export * from './launchd/index.js';
+export * from './power/index.js';
