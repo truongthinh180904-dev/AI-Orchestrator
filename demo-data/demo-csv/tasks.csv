@@ -1,0 +1,6 @@
+task_id,feature_id,title,description,phase,worker_type,repository,dependencies,acceptance_criteria,test_commands,priority,max_attempts,timeout_minutes
+DEMO-001,hello-api,Khoi tao du an hello,Tao thu muc src va file package.json toi gian,Setup,coding,.,,File package.json ton tai va hop le,node -e "JSON.parse(require('fs').readFileSync('package.json'))",10,2,15
+DEMO-002,hello-api,Viet ham greet,Tao src/greet.js xuat ham greet(name) tra ve chuoi Xin chao + name,Core,coding,.,DEMO-001,greet('An') tra ve 'Xin chao An',node -e "console.log(require('./src/greet.js').greet('An'))",8,2,15
+DEMO-003,hello-api,Viet ham farewell,Tao src/farewell.js xuat ham farewell(name),Core,coding,.,DEMO-001,farewell('An') tra ve 'Tam biet An',node -e "console.log(require('./src/farewell.js').farewell('An'))",8,2,15
+DEMO-004,hello-api,Ghep thanh CLI,Tao src/index.js goi greet va farewell theo tham so dong lenh,Integration,coding,.,"DEMO-002,DEMO-003",node src/index.js An in ra 2 dong chao va tam biet,node src/index.js An,5,2,20
+DEMO-005,hello-api,Viet README,Tao README.md huong dan chay,Docs,coding,.,DEMO-004,README co muc Cach chay,node -e "require('fs').accessSync('README.md')",1,2,10

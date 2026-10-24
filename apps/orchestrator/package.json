@@ -11,6 +11,7 @@
   "dependencies": {
     "@ai-orchestrator/db": "workspace:*",
     "@ai-orchestrator/shared": "workspace:*",
+    "@fastify/cors": "^11.3.1",
     "@fastify/multipart": "^10.1.4",
     "fastify": "^5.12.7",
     "zod": "^4.6.7"

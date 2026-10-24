@@ -1,0 +1,7 @@
+task_id,feature_id,title,description,phase,worker_type,repository,dependencies,acceptance_criteria,test_commands,priority,max_attempts,timeout_minutes
+BAD-001,bad-feature,Task binh thuong,Task hop le,Setup,coding,.,,Co file,echo ok,5,2,15
+BAD-001,bad-feature,Trung ma voi dong tren,Loi: trung task_id,Setup,coding,.,,Co file,echo ok,5,2,15
+BAD-003,bad-feature,Phu thuoc khong ton tai,Loi: dependency khong co,Core,coding,.,BAD-999,Co file,echo ok,5,2,15
+BAD-004,bad-feature,,Loi: thieu title,Core,coding,.,BAD-001,Co file,echo ok,5,2,15
+BAD-005,bad-feature,Priority sai kieu,Loi: priority khong phai so,Core,coding,.,BAD-001,Co file,echo ok,abc,2,15
+BAD-006,feature-khong-co,Feature khong ton tai,Loi: feature_id khong khai bao,Core,coding,.,BAD-001,Co file,echo ok,5,2,15

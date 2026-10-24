@@ -1,0 +1,2 @@
+feature_id,feature_name,description,required_tasks,integration_tests,release_policy
+bad-feature,Feature loi,Dung de thu bat loi,"BAD-001,BAD-003",echo ok,review

@@ -1,0 +1,3 @@
+key,value,description
+repository,/Users/truongthinh/sandbox/landing-test,Repo thử nghiệm
+max_parallel,1,Chỉ 1 agent tại một thời điểm

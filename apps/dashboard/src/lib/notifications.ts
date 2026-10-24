@@ -36,6 +36,7 @@ export class NotificationStore {
     this.maxCount = maxCount;
   }
 
+  
   private emitChange(): void {
     for (const listener of this.listeners) {
       listener();
@@ -270,8 +271,10 @@ export function createNotificationFromEvent(
 /**
  * React hook for consuming notifications reactively
  */
+const EMPTY_SNAPSHOT: ReturnType<NotificationStore['getSnapshot']> = [];
+
 export function useNotifications(store: NotificationStore = notificationStore) {
-  const notifications = useSyncExternalStore(store.subscribe, store.getSnapshot, () => []);
+  const notifications = useSyncExternalStore(store.subscribe, store.getSnapshot, () => EMPTY_SNAPSHOT);
   const unreadCount = notifications.filter((n) => !n.read).length;
 
   return {

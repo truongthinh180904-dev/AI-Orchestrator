@@ -1,0 +1,2 @@
+feature_id,feature_name,description,required_tasks,integration_tests,release_policy
+cycle-feature,Feature chu trinh,Dung de thu bat chu trinh,"CYC-001,CYC-002,CYC-003",echo ok,review

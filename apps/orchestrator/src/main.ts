@@ -1,6 +1,7 @@
 import { loadEnv, logger } from '@ai-orchestrator/shared';
 import { createDatabase, runMigrations } from '@ai-orchestrator/db';
 import { buildServer } from './server.js';
+import { pathToFileURL } from 'node:url';
 
 export async function bootstrap(): Promise<void> {
   const env = loadEnv();
@@ -48,7 +49,7 @@ export async function bootstrap(): Promise<void> {
 }
 
 // Automatically start if executed directly
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   bootstrap().catch((err) => {
     logger.error('Fatal error during Orchestrator bootstrap:', err);
     process.exit(1);

@@ -1,0 +1,4 @@
+task_id,feature_id,title,description,phase,worker_type,repository,dependencies,acceptance_criteria,test_commands,priority,max_attempts,timeout_minutes
+CYC-001,cycle-feature,Task A,A phu thuoc C,Core,coding,.,CYC-003,Co file,echo ok,5,2,15
+CYC-002,cycle-feature,Task B,B phu thuoc A,Core,coding,.,CYC-001,Co file,echo ok,5,2,15
+CYC-003,cycle-feature,Task C,C phu thuoc B,Core,coding,.,CYC-002,Co file,echo ok,5,2,15

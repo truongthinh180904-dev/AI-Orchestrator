@@ -1,0 +1,2 @@
+feature_id,feature_name,description,required_tasks,integration_tests,release_policy
+landing-page,Landing page Aura Coffee,"Trang landing tĩnh gồm hero, tính năng, bảng giá, liên hệ","LP-001,LP-002,LP-003,LP-004,LP-005,LP-006","node -e 'const t=require(""fs"").readFileSync(""index.html"",""utf8"");process.exit([`hero`,`features`,`pricing`,`contact`].every(i=>t.includes(`id=""${i}""`))?0:1)'",review

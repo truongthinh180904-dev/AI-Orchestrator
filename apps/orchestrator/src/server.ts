@@ -37,12 +37,17 @@ import { SystemResourceMonitor } from './services/system-resource-monitor.js';
 import { CaffeinateManager } from './services/caffeinate-manager.js';
 import { SoakTestRunner } from './services/soak-test-runner.js';
 import { SystemResourceRepository, SoakTestRepository } from '@ai-orchestrator/db';
+import cors from '@fastify/cors';
 
 export async function buildServer(options: BuildServerOptions): Promise<FastifyInstance> {
   const { db, logger = false } = options;
 
   const server = Fastify({
     logger,
+  });
+
+  await server.register(cors, {
+    origin: ['http://localhost:3001', 'http://127.0.0.1:3001'],
   });
 
   // Register multipart plugin for file uploads

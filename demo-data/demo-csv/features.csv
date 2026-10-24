@@ -1,0 +1,2 @@
+feature_id,feature_name,description,required_tasks,integration_tests,release_policy
+hello-api,Hello CLI,Mot CLI nho de thu he thong,"DEMO-001,DEMO-002,DEMO-003,DEMO-004,DEMO-005",node src/index.js An,review
