@@ -6,9 +6,6 @@ import {
   createDatabase,
   runMigrations,
   TaskRepository,
-  RunRepository,
-  EventRepository,
-  CheckpointRepository,
   AgentLockRepository,
   RecoveryAuditRepository,
   SoakTestRepository,
@@ -30,9 +27,6 @@ const mockCliPath = path.resolve(__dirname, '../fixtures/mock-agy-cli.cjs');
 describe('OPS-007: Soak test + mô phỏng lỗi xuyên đêm (Đạt thời lượng, không mất dữ liệu)', () => {
   let db: Database.Database;
   let taskRepo: TaskRepository;
-  let runRepo: RunRepository;
-  let eventRepo: EventRepository;
-  let checkpointRepo: CheckpointRepository;
   let lockRepo: AgentLockRepository;
   let auditRepo: RecoveryAuditRepository;
   let soakTestRepo: SoakTestRepository;
@@ -51,9 +45,6 @@ describe('OPS-007: Soak test + mô phỏng lỗi xuyên đêm (Đạt thời lư
     runMigrations(db);
 
     taskRepo = new TaskRepository(db);
-    runRepo = new RunRepository(db);
-    eventRepo = new EventRepository(db);
-    checkpointRepo = new CheckpointRepository(db);
     lockRepo = new AgentLockRepository(db);
     auditRepo = new RecoveryAuditRepository(db);
     soakTestRepo = new SoakTestRepository(db);
