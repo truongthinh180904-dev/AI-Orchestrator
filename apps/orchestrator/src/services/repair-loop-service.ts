@@ -22,6 +22,7 @@ import { ReviewerService } from './reviewer-service.js';
 import { TaskStateService } from './task-state-service.js';
 import { ProcessAdapter, processAdapter as defaultProcessAdapter } from '../adapters/process-adapter.js';
 import { getOrchestratorConfig } from '../config.js';
+import { buildAgyArgs } from './agy-args.js';
 
 export interface RepairLoopServiceOptions {
   db: Database.Database;
@@ -443,8 +444,7 @@ export class RepairLoopService {
    */
   private async defaultExecuteFix(taskId: string, prompt: string, repoPath: string): Promise<void> {
     const agyBin = this.config.AGY_BIN || 'agy';
-    const rawArgs = this.config.AGY_ARGS ? this.config.AGY_ARGS.split(' ') : ['-p'];
-    const args = [...rawArgs, prompt];
+    const args = buildAgyArgs(this.config.AGY_ARGS, prompt);
 
     const handle = this.processAdapter.spawn({
       exe: agyBin,

@@ -34,6 +34,7 @@ import type { RepositoryRegistry } from '../adapters/repository-registry.js';
 import { getOrchestratorConfig } from '../config.js';
 import { TaskHistoryService } from './task-history-service.js';
 import { ProcessMonitorService } from './process-monitor-service.js';
+import { buildAgyArgs } from './agy-args.js';
 
 export interface RunServiceOptions {
   db: Database.Database;
@@ -172,7 +173,7 @@ export class RunService {
       args = input.command.args;
     } else {
       const prompt = task.description || task.title;
-      args = this.config.AGY_ARGS ? [this.config.AGY_ARGS, '-p', prompt] : ['-p', prompt];
+      args = buildAgyArgs(this.config.AGY_ARGS, prompt);
     }
 
     // Determine working directory

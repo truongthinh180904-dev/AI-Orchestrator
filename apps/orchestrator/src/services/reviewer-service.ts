@@ -29,6 +29,7 @@ import { processAdapter, ProcessAdapter, type ProcessHandle } from '../adapters/
 import type { RepositoryRegistry } from '../adapters/repository-registry.js';
 import type { ScopeDiffService } from './scope-diff-service.js';
 import { getOrchestratorConfig } from '../config.js';
+import { buildAgyArgs } from './agy-args.js';
 
 export interface ReviewerServiceOptions {
   db: Database.Database;
@@ -263,11 +264,7 @@ export class ReviewerService {
     if (validatedInput.command?.args) {
       args = [...validatedInput.command.args];
     } else {
-      args = [];
-      if (this.config.AGY_ARGS) {
-        args.push(this.config.AGY_ARGS);
-      }
-      args.push('-p', prompt);
+      args = buildAgyArgs(this.config.AGY_ARGS, prompt);
     }
 
     logger.info('Executing reviewer agent', {

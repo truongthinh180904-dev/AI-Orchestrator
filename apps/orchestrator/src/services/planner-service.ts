@@ -30,6 +30,7 @@ import { getOrchestratorConfig } from '../config.js';
 import { PlanReviewService, type ExecutePlanResult } from './plan-review-service.js';
 import { PlanOrchestrator, type StepPlanResult } from './plan-orchestrator.js';
 import type { TaskScheduler } from './task-scheduler.js';
+import { buildAgyArgs } from './agy-args.js';
 
 export interface PlannerServiceOptions {
   db: Database.Database;
@@ -172,11 +173,7 @@ export class PlannerService {
     if (validatedInput.command?.args) {
       args = [...validatedInput.command.args];
     } else {
-      args = [];
-      if (this.config.AGY_ARGS) {
-        args.push(this.config.AGY_ARGS);
-      }
-      args.push('-p', prompt);
+      args = buildAgyArgs(this.config.AGY_ARGS, prompt);
     }
 
     logger.info('Generating plan via AGY', {
